@@ -1,0 +1,128 @@
+# ============================================================
+# NVV Candidate Pipeline – Run Configuration
+# ============================================================
+#
+# Selection semantics for project settings:
+# - project.root: relative path to the project root (relative to this yaml file)
+# - paths.raw_root: relative path to raw data root (relative to project root)
+# - paths.processed_root: relative path to processed data root (relative to project root)
+# - runtime.device: "cpu", "cuda", "auto" or specific cuda device (e.g. "cuda:0")
+# - runtime.force: if true, forces re-running all steps even if outputs already exist (default: false)
+#
+# Input selection semantics for pipeline steps 4, 5 and 7:
+# - For any "*_in" field you may provide:
+#   - a list of strings (explicit selection), OR
+#   - the string "all" (explicitly select all allowed values), OR
+#   - omit the key entirely (defaults to "all").
+# - YAML null is NOT supported for source selection
+# - VAD "no" is a string token and is only valid for vad_masks_in (Steps 5 and 7).
+# Allowed Input tokens:
+# audio_derivatives as vad_audios_in / asr_audios_in (6):
+#   ["original","std","std_vocals","std_background","std_vocals_norm","std_background_norm"]
+# vad_masks_in (7):
+#   ["no", "original","std","std_vocals","std_background","std_vocals_norm","std_background_norm"]
+#
+# Input selection for step 6:
+# - spacy_model: any installed spaCy model (e.g. "en_core_web_sm", "en_core_web_lg")
+#
+# Input selection for step 7:
+# - exclude_categories: list of NLP categories to exclude from NVV candidates (e.g. ["word"],)(required; use [] explicitly if none)
+# - min_duration / max_duration: duration thresholds for NVV candidates in seconds (float, both required, max can be null)
+# - vad_gate_padding: seconds of padding added to VAD gate on both sides for NVV candidate extraction (float, required)
+#
+# Output selection for export step:
+# - clips: which types of clips to export; allowed values: ["nvv", "words"]
+# - labels: which types of labels to export; allowed values: ["asr", "vad", "nvv"]
+# ===========================================================
+
+# --- Project roots ---
+project:
+  root: "../.."
+
+paths:
+  raw_root: "data/raw"
+  processed_root: "data/processed/VOCAL" # relative to project root
+
+runtime:
+  device: "cuda"
+  force: false
+
+# --- Pipeline: Input / Workspace selection (user-editable) ---
+workspace:
+  datasets:
+    - name: "VOCAL_RA1"
+      input_rel: "VOCAL/RA1"
+      output_rel: "RA1"
+
+    - name: "VOCAL_RA2"
+      input_rel: "VOCAL/RA2"
+      output_rel: "RA2"
+
+
+# --- Evaluation / Ground Truth / Preprocessing configuration: special case VOCALS concrete paths) ---
+evaluation:
+
+  # Ground-truth “units” (one per original excel)
+  gt_units:
+    - name: "VOCAL_RA1"
+      # Original VOCALS excel (relative to raw_root)
+      raw_excel_rel_path: "Annotation_Main_20260202/Alma/ra1_dataset/annotations_template_RA1.xlsx"
+      # Where the cleaned version will be written (relative to processed_root)
+      cleaned_excel_rel_path: "VOCAL_annotations_cleaned/annotations_template_RA1_cleaned.xlsx"
+      # VOCALS-only: root folder that contains the WAVs for this excel (relative to raw_root)
+      vocals_dataset_root_rel: "Annotation_Main_20260202/Alma/ra1_dataset"
+      # VOCALS-only: where to copy the annotated wav subset to (relative to raw_root)
+      vocals_subset_copy_rel: "VOCAL/RA1"
+
+    - name: "VOCAL_RA2"
+      raw_excel_rel_path: "Annotation_Main_20260202/Arya/ra2_dataset/annotations_template_RA2.xlsx"
+      cleaned_excel_rel_path: "VOCAL_annotations_cleaned/annotations_template_RA2_cleaned.xlsx"
+      vocals_dataset_root_rel: "Annotation_Main_20260202/Arya/ra2_dataset"
+      vocals_subset_copy_rel: "VOCAL/RA2"
+
+  gt_mode: "full_gt"   # "full_gt" or "part_gt"; controls which evaluation metrics are used for evaluation
+  # Column name used to map GT rows -> audio_id
+  gt_id_column: "video_id"
+
+  # Where GT label exports go (relative to processed_root)
+  gt_labels_export_rel: "VOCAL_labels"
+
+  # Optional merged GT (relative to processed_root).
+  # If set (non-null), evaluation should use THIS as the single “truth” file.
+  gt_merged_cleaned_excel_rel: "VOCAL_annotations_cleaned/annotations_template_VOCAL_cleaned_merged.xlsx"
+
+# --- Pipeline Step configuration ---
+pipeline:
+
+  4_vad:
+    vad_audios_in: "all"
+    vad_threshold: 0.20 # experiment result, same as used in EMILIA Pipeline
+    vad_min_speech_ms: 75
+    vad_min_silence_ms: 50 # experiment result
+    vad_pad_ms: 50
+
+
+  5_asr:
+    vad_masks_in: "all"
+    asr_audios_in: "all"
+    asr_chunk_length_s: 30
+    asr_batch_size: 1
+
+  6_nlp:
+    spacy_model: "en_core_web_lg"
+
+  7_nvv:
+    exclude_categories: ["word"]
+    min_duration: 0.2 # shortest VOCALS segment is 0.2s, so this is a natural lower bound to test
+    max_duration: 6.5 # longest VOCALS segment is 6.5s, so this is a natural upper bound to test, experiment results did not show significant differences between [null] and [6.5]
+    vad_gate_padding: 0.0
+    dedup_overlap_ratio: 0.5 # experiment result
+    dedup_time_tol_s: 0.01 # same as params.EVAL_DEDUP_EPS_S
+    vad_masks_in: "all"
+    asr_audios_in: "all"
+
+
+# --- Export resulting clips (after pipeline) ---
+export:
+  clips: ["nvv", "words"]
+  labels: ["asr", "vad", "nvv"]
