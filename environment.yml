@@ -1,0 +1,54 @@
+name: nvv_isolation_pipeline
+
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pip
+
+  # core
+  - numpy=1.26.4
+  - pandas
+  - pyyaml
+  - tqdm
+
+  # audio
+  - librosa
+  - pysoundfile
+  - ffmpeg
+
+  # ML (GPU)
+  - pytorch=2.0.1
+  - torchaudio=2.0.2
+  - torchvision=0.15.2
+  - pytorch-cuda=11.8
+
+  # NLP
+  - spacy
+
+  # Excel / preprocessing
+  - openpyxl
+
+  - pip:
+      # ASR
+      - transformers==4.37.2
+      - tokenizers==0.15.2
+      - accelerate==1.10.1
+
+      # VAD
+      - silero-vad==6.0.0
+
+      # ONNX
+      - onnx==1.15.0
+      - onnxruntime-gpu==1.18.1
+
+      # NLP extras
+      - wordfreq==3.1.1
+      - ftfy==6.3.1
+
+      # utils
+      - intervaltree==3.1.0
