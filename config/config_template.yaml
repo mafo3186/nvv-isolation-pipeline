@@ -1,0 +1,103 @@
+# ============================================================
+# NVV Candidate Pipeline – Run Configuration
+# ============================================================
+#
+# This file can and should be used as a template for creating project-specific config files for other datasets.
+# Example of usage with (complex) VOCAL dataset, see config_template_vocal.yaml.
+# Selection semantics for project settings:
+# - project.root: relative path to the project root (relative to this yaml file)
+# - paths.raw_root: relative path to raw data root (relative to project root)
+# - paths.processed_root: relative path to processed data root (relative to project root)
+# - runtime.device: "cpu", "cuda", "auto" or specific cuda device (e.g. "cuda:0")
+# - runtime.force: if true, forces re-running all steps even if outputs already exist (default: false)
+#
+# Input selection semantics for pipeline steps 4, 5 and 7:
+# - For any "*_in" field you may provide:
+#   - a list of strings (explicit selection), OR
+#   - the string "all" (explicitly select all allowed values), OR
+#   - omit the key entirely (defaults to "all").
+# - YAML null is NOT supported for source selection
+# - VAD "no" is a string token and is only valid for vad_masks_in (Steps 5 and 7).
+# Allowed Input tokens:
+# audio_derivatives as vad_audios_in / asr_audios_in (6):
+#   ["original","std","std_vocals","std_background","std_vocals_norm","std_background_norm"]
+# vad_masks_in (7):
+#   ["no", "original","std","std_vocals","std_background","std_vocals_norm","std_background_norm"]
+#
+# Input selection for step 6:
+# - spacy_model: any installed spaCy model (e.g. "en_core_web_sm", "en_core_web_lg")
+#
+# Input selection for step 7:
+# - exclude_categories: list of NLP categories to exclude from NVV candidates (e.g. ["word"],)(required; use [] explicitly if none)
+# - min_duration / max_duration: duration thresholds for NVV candidates in seconds (float, both required, max can be null)
+# - vad_gate_padding: seconds of padding added to VAD gate on both sides for NVV candidate extraction (float, required)
+#
+# Output selection for export step:
+# - clips: which types of clips to export; allowed values: ["nvv", "words"]
+# - labels: which types of labels to export; allowed values: ["asr", "vad", "nvv"]
+# ===========================================================
+
+# --- Project roots ---
+project:
+  root: "../.." # relative path to project root from this config file
+
+paths:
+  raw_root: "data/raw" # relative to project root
+  processed_root: "data/processed/" # relative to project root
+
+runtime:
+  device: "cuda"
+  force: false
+
+# --- Pipeline: Input / Workspace selection (user-editable) ---
+workspace:
+  datasets:
+  - name: <workspace_dataset_name>
+    input_rel: <relative folder path to raw_root>
+    output_rel: <relative folder path to processed_root>
+evaluation:
+  gt_units:
+  - name: <workspace_dataset_name> # should match the dataset name in workspace.datasets
+    raw_excel_rel_path: <relative excel-file-path to raw_root>
+    cleaned_excel_rel_path: <relative excel-file-path to processed_root>
+  gt_labels_export_rel: <relative folder path to processed_root>
+  gt_mode: full_gt # "full_gt" or "part_gt"
+  gt_id_column: <gt id column name in excel>
+  gt_merged_cleaned_excel_rel: null # optional if more than one gt_uni exists - see config_template_vocal.yaml for usage example
+
+
+# --- Pipeline Step configuration ---
+pipeline:
+
+  4_vad:
+    vad_audios_in: "all"
+    vad_threshold: 0.20
+    vad_min_speech_ms: 75
+    vad_min_silence_ms: 75
+    vad_pad_ms: 50
+
+
+  5_asr:
+    vad_masks_in: "all"
+    asr_audios_in: "all"
+    asr_chunk_length_s: 30
+    asr_batch_size: 1
+
+  6_nlp:
+    spacy_model: "en_core_web_lg"
+
+  7_nvv:
+    exclude_categories: ["word"]
+    min_duration: 0.2 
+    max_duration: 6.5 
+    vad_gate_padding: 0.0
+    dedup_overlap_ratio: 0.7
+    dedup_time_tol_s: 0.01 # recommendation: same as params.EVAL_DEDUP_EPS_S
+    vad_masks_in: "all"
+    asr_audios_in: "all"
+
+
+# --- Export resulting clips (after pipeline) ---
+export:
+  clips: ["nvv"]
+  labels: ["asr", "vad", "nvv"]
