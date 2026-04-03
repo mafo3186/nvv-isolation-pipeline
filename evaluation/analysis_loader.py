@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional, List
 
-
-
 from config.path_factory import (
     get_datasets,
     get_workspace_paths,
@@ -13,11 +11,13 @@ from config.path_factory import (
     get_rq2_config_ranking_single_csv_path,
     get_rq2_config_ranking_selected_set_csv_path,
     get_rq2_config_audio_derivatives_rq_csv_path,
-    get_rq3_nvv_coverage_rq_csv_path,
+    get_rq3_nvv_coverage_label_rq_csv_path,
+    get_rq3_nvv_coverage_global_rq_csv_path,
 )
 from evaluation.results_experiment import get_results_experiment
 from utils.io import load_yaml
 from evaluation.eval_io import validate_mode, load_csv_or_fail
+
 from evaluation.analysis_tables import (
     collect_comparison_views,
     combine_comparison_views,
@@ -95,7 +95,8 @@ def load_rq_results(
         "rq2a_single": get_rq2_config_ranking_single_csv_path(evaluation_dir, mode),
         "rq2a_selected_set": get_rq2_config_ranking_selected_set_csv_path(evaluation_dir, mode),
         "rq2b": get_rq2_config_audio_derivatives_rq_csv_path(evaluation_dir, mode),
-        "rq3": get_rq3_nvv_coverage_rq_csv_path(evaluation_dir, mode),
+        "rq3_label": get_rq3_nvv_coverage_label_rq_csv_path(evaluation_dir, mode),
+        "rq3_global": get_rq3_nvv_coverage_global_rq_csv_path(evaluation_dir, mode),
     }
 
     return {
@@ -186,6 +187,11 @@ def load_and_compare_workspaces(
     bundles_by_spec: dict[str, dict[str, Any]] = {}
     views_by_spec: dict[str, dict[str, Any]] = {}
 
+    setting_order = [
+        f"{str(spec['dataset_name'])} | {str(spec['mode'])}"
+        for spec in specs
+    ]
+
     for spec in specs:
         label = str(spec["label"])
         cfg_path = Path(spec["cfg_path"])
@@ -248,10 +254,8 @@ def load_and_compare_workspaces(
         "bundles_by_spec": bundles_by_spec,
         "views_by_spec": views_by_spec,
         "combined_views": combined_views,
+        "setting_order": setting_order,
     }
-
-
-
 
 
 # --- Experiment Result Loader ---
@@ -351,6 +355,11 @@ def load_and_compare_experiments(
     """
     bundles_by_experiment: dict[str, dict[str, Any]] = {}
     views_by_experiment: dict[str, dict[str, Any]] = {}
+ 
+    setting_order = [
+        f"{str(spec['dataset_name'])} | {str(spec['mode'])}"
+        for spec in experiment_specs
+    ]
 
     for spec in experiment_specs:
         label = str(spec["label"])
@@ -367,8 +376,26 @@ def load_and_compare_experiments(
             top_k_rq2a_per_run=top_k_rq2a_per_run,
         )
 
+        results = bundle["results"]
+        setting = f"{dataset_name} | {mode}"
+
+        results_with_meta = {}
+        for key, df in results.items():
+            df_copy = df.copy()
+
+            if "dataset_name" not in df_copy.columns:
+                df_copy.insert(0, "dataset_name", dataset_name)
+
+            if "mode" not in df_copy.columns:
+                df_copy.insert(1, "mode", mode)
+
+            if "setting" not in df_copy.columns:
+                df_copy.insert(0, "setting", setting)
+
+            results_with_meta[key] = df_copy
+
         views = collect_comparison_views(
-            results=bundle["results"],
+            results=results_with_meta,
             dataset_names=[dataset_name],
             modes=[mode],
             score_fraction=score_fraction,
@@ -378,7 +405,10 @@ def load_and_compare_experiments(
             combo_top_n=combo_top_n,
         )
 
-        bundles_by_experiment[label] = bundle
+        bundles_by_experiment[label] = {
+            **bundle,
+            "results": results_with_meta,
+        }
         views_by_experiment[label] = views
 
     combined_views = combine_comparison_views(views_by_experiment)
@@ -387,4 +417,5 @@ def load_and_compare_experiments(
         "bundles_by_experiment": bundles_by_experiment,
         "views_by_experiment": views_by_experiment,
         "combined_views": combined_views,
+        "setting_order": setting_order,
     }

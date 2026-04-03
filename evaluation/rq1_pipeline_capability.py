@@ -6,10 +6,15 @@ import json
 
 import pandas as pd
 
-from config.constants import KEY_PER_AUDIO, KEY_ANNOTATIONS, KEY_NVV
+from config.constants import KEY_PER_AUDIO
 from utils.io import ensure_dir
 from evaluation.eval_event_matching import match_events_optimal
-from evaluation.eval_metrics import overlap_seconds, dice_event_overlap_score
+from evaluation.eval_metrics import (
+    overlap_seconds,
+    dice_event_overlap_score,
+    full_gt_metrics,
+    partial_gt_metrics,
+)
 from evaluation.eval_adapter_candidates import load_candidate_events_from_nvv_json
 from evaluation.eval_io import write_csv_atomic, write_xlsx_atomic
 from config.params import EVAL_T_COLLAR, EVAL_PERCENTAGE_OF_LENGTH
@@ -20,7 +25,7 @@ from config.path_factory import (
     get_pipeline_capability_per_audio_csv_path,
     get_pipeline_capability_xlsx_path,
     get_pipeline_capability_nvv_events_csv_path,
-    get_nvv_json_path_from_combo_key
+    get_nvv_json_path_from_combo_key,
 )
 
 
@@ -152,10 +157,7 @@ def _compute_metrics_from_pairs_full_gt(
     Full-GT: TP/FP/FN + Precision/Recall/F1 + EOS (dice + overlap).
     """
     tp = int(counts.tp)
-    fn = int(counts.fn)
-    fp = int(counts.fp)
     n_gt = int(counts.n_gt)
-    n_cand = int(counts.n_cand)
 
     # mean dice / overlap over TP pairs
     if tp > 0:
@@ -191,19 +193,20 @@ def _compute_metrics_from_pairs_full_gt(
     else:
         dice_eos_recall = 0.0
 
-    precision = (tp / float(n_cand)) if n_cand > 0 else 0.0
-    recall = (tp / float(n_gt)) if n_gt > 0 else 0.0
-    f1 = (2.0 * precision * recall / (precision + recall)) if (precision + recall) > 0.0 else 0.0
+    classic = full_gt_metrics(counts)
 
     return {
-        "n_gt": float(n_gt),
-        "n_cand": float(n_cand),
-        "tp": float(tp),
-        "fn": float(fn),
-        "fp": float(fp),
-        "precision": float(precision),
-        "recall": float(recall),
-        "f1": float(f1),
+        "n_gt": float(counts.n_gt),
+        "n_cand": float(counts.n_cand),
+        "tp": float(counts.tp),
+        "fn": float(counts.fn),
+        "fp": float(counts.fp),
+        "precision": float(classic["precision"]),
+        "recall": float(classic["recall"]),
+        "f1": float(classic["f1"]),
+        "insertion_rate": float(classic["insertion_rate"]),
+        "deletion_rate": float(classic["deletion_rate"]),
+        "error_rate": float(classic["error_rate"]),
         "mean_dice_eos_tp": float(mean_dice_tp),
         "dice_eos_recall": float(dice_eos_recall),
         "mean_overlap_s_tp": float(mean_overlap_tp),
@@ -218,14 +221,10 @@ def _compute_metrics_from_pairs_part_gt(
     counts: Any,
 ) -> Dict[str, float]:
     """
-    Partial-GT: Recall-only reporting. We still compute tp/fn and EOS recall,
-    but precision/f1 are set to NaN to discourage misuse.
+    Partial-GT: recall-oriented reporting with overlap metrics.
     """
     tp = int(counts.tp)
-    fn = int(counts.fn)
-    fp = int(counts.fp)  # computed but not used for scoring
     n_gt = int(counts.n_gt)
-    n_cand = int(counts.n_cand)
 
     # EOS recall (same definition)
     if n_gt > 0 and tp > 0:
@@ -241,10 +240,8 @@ def _compute_metrics_from_pairs_part_gt(
         dice_eos_recall = float(dice_sum / float(n_gt))
     else:
         dice_eos_recall = 0.0
-
-    recall = (tp / float(n_gt)) if n_gt > 0 else 0.0
-
     # still provide mean overlap/dice on TP for interpretability
+
     if tp > 0:
         dices: List[float] = []
         overlaps: List[float] = []
@@ -263,15 +260,20 @@ def _compute_metrics_from_pairs_part_gt(
         mean_dice_tp = 0.0
         mean_overlap_tp = 0.0
 
+    partial = partial_gt_metrics(counts)
+
     return {
-        "n_gt": float(n_gt),
-        "n_cand": float(n_cand),
-        "tp": float(tp),
-        "fn": float(fn),
-        "fp": float(fp),
+        "n_gt": float(counts.n_gt),
+        "n_cand": float(counts.n_cand),
+        "tp": float(counts.tp),
+        "fn": float(counts.fn),
+        "fp": float(counts.fp),
         "precision": float("nan"),
-        "recall": float(recall),
+        "recall": float(partial["recall"]),
         "f1": float("nan"),
+        "insertion_rate": float(partial["insertion_rate"]),
+        "deletion_rate": float(partial["deletion_rate"]),
+        "error_rate": float("nan"),
         "mean_dice_eos_tp": float(mean_dice_tp),
         "dice_eos_recall": float(dice_eos_recall),
         "mean_overlap_s_tp": float(mean_overlap_tp),
@@ -358,6 +360,7 @@ def _build_nvv_event_rows(
 
     return rows
 
+
 def _evaluate_union_for_audio_id(
     *,
     mode: str,
@@ -422,15 +425,14 @@ def _evaluate_union_for_audio_id(
         )
     else:
         raise ValueError(f"Unknown mode: {mode!r} (expected 'full_gt' or 'part_gt')")
-    
 
     nvv_event_rows = _build_nvv_event_rows(
-    mode=mode,
-    audio_id=audio_id,
-    gt_events=gt_events,
-    cand_events=union_events,
-    gt_cand_pairs=gt_cand_pairs,
-)
+        mode=mode,
+        audio_id=audio_id,
+        gt_events=gt_events,
+        cand_events=union_events,
+        gt_cand_pairs=gt_cand_pairs,
+    )
     metrics["nvv_event_rows"] = nvv_event_rows
 
     return metrics
@@ -538,6 +540,7 @@ def run_pipeline_capability_evaluation(
     macro = {}
     for col in [
         "n_gt", "n_cand", "tp", "fn", "fp",
+        "insertion_rate", "deletion_rate", "error_rate",
         "precision", "recall", "f1",
         "mean_dice_eos_tp", "dice_eos_recall", "mean_overlap_s_tp",
     ]:
@@ -565,7 +568,6 @@ def run_pipeline_capability_evaluation(
         write_csv_atomic(df=per_audio_df, out_path=out_per)
         write_csv_atomic(df=nvv_events_df, out_path=out_nvv_events)
 
-        # Use your existing helper: write_xlsx_atomic(detailed_df, summary_df, ...)
         write_xlsx_atomic(
             detailed_df=per_audio_df,
             summary_df=summary_df,

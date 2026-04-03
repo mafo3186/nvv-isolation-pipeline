@@ -3,8 +3,12 @@ from __future__ import annotations
 from typing import Optional
 import pandas as pd
 
-
 from evaluation.eval_io import validate_mode
+from evaluation.analysis_metrics import (
+    get_ordered_metric_names,
+    get_metric_sort_ascending,
+)
+
 
 def _filter_dataset(df: pd.DataFrame, dataset_name: Optional[str]) -> pd.DataFrame:
     """
@@ -28,63 +32,12 @@ def _filter_dataset(df: pd.DataFrame, dataset_name: Optional[str]) -> pd.DataFra
     return result[result["dataset_name"] == dataset_name].copy()
 
 
-def get_primary_metric_name(mode: str, rq: str = "rq1") -> str:
-    """
-    Return the primary metric name for a given RQ and mode.
-
-    Args:
-        mode: Evaluation mode ("full_gt" or "part_gt").
-        rq: Research question key.
-
-    Returns:
-        Column name of the primary metric.
-    """
-    validate_mode(mode)
-
-    if rq == "rq1":
-        return "macro_mean_f1" if mode == "full_gt" else "macro_mean_recall"
-
-    if rq == "rq2a":
-        return "macro_mean_f1" if mode == "full_gt" else "macro_mean_recall"
-
-    if rq == "rq3":
-        return "macro_mean_f1" if mode == "full_gt" else "macro_mean_recall"
-
-    raise ValueError(f"Unsupported rq='{rq}'.")
-
-
-def get_secondary_metric_names(mode: str, rq: str = "rq1") -> list[str]:
-    """
-    Return secondary sort metrics for a given RQ and mode.
-
-    Args:
-        mode: Evaluation mode ("full_gt" or "part_gt").
-        rq: Research question key.
-
-    Returns:
-        Ordered list of secondary metric column names.
-    """
-    validate_mode(mode)
-
-    if rq in {"rq1", "rq2a"}:
-        if mode == "full_gt":
-            return ["macro_mean_recall", "macro_mean_mean_dice_eos_tp"]
-        return ["macro_mean_dice_eos_recall", "macro_mean_mean_dice_eos_tp"]
-
-    if rq == "rq3":
-        if mode == "full_gt":
-            return ["macro_mean_recall", "macro_mean_mean_dice_eos_tp"]
-        return ["macro_mean_mean_dice_eos_tp"]
-
-    raise ValueError(f"Unsupported rq='{rq}'.")
-
-
 def _sort_by_metrics(
     df: pd.DataFrame,
     metric_cols: list[str],
 ) -> pd.DataFrame:
     """
-    Sort a DataFrame descending by the provided metric columns.
+    Sort a DataFrame by ordered metric columns.
 
     Args:
         df: Input DataFrame.
@@ -97,7 +50,12 @@ def _sort_by_metrics(
     if missing:
         raise KeyError(f"Missing required metric columns: {missing}")
 
-    return df.sort_values(by=metric_cols, ascending=[False] * len(metric_cols)).reset_index(drop=True)
+    ascending = [get_metric_sort_ascending(metric) for metric in metric_cols]
+
+    return df.sort_values(
+        by=metric_cols,
+        ascending=ascending,
+    ).reset_index(drop=True)
 
 
 def get_top_runs(
@@ -128,7 +86,7 @@ def get_top_runs(
     df = df[df["mode"] == mode].copy()
     df = _filter_dataset(df, dataset_name)
 
-    metric_cols = [get_primary_metric_name(mode, "rq1"), *get_secondary_metric_names(mode, "rq1")]
+    metric_cols = get_ordered_metric_names(mode)
     df = _sort_by_metrics(df, metric_cols)
 
     return df.head(top_n).reset_index(drop=True)
@@ -165,7 +123,9 @@ def get_top_region_runs(
     df = df[df["mode"] == mode].copy()
     df = _filter_dataset(df, dataset_name)
 
-    primary_metric = get_primary_metric_name(mode, "rq1")
+    metric_cols = get_ordered_metric_names(mode)
+    primary_metric = metric_cols[0]
+
     if primary_metric not in df.columns:
         raise KeyError(f"Expected column '{primary_metric}' in RQ1 DataFrame.")
 
@@ -174,9 +134,10 @@ def get_top_region_runs(
 
     result = df[df[primary_metric] >= cutoff].copy()
     result["primary_score"] = result[primary_metric]
-    result["score_fraction_of_best"] = result[primary_metric] / best_score if best_score != 0 else 0.0
+    result["score_fraction_of_best"] = (
+        result[primary_metric] / best_score if best_score != 0 else 0.0
+    )
 
-    metric_cols = [primary_metric, *get_secondary_metric_names(mode, "rq1")]
     return _sort_by_metrics(result, metric_cols)
 
 
@@ -295,10 +256,9 @@ def get_combo_key_summary(
     df = df[df["mode"] == mode].copy()
     df = _filter_dataset(df, dataset_name)
 
-    primary_metric = get_primary_metric_name(mode, "rq2a")
-    secondary_metrics = get_secondary_metric_names(mode, "rq2a")
+    ordered_metrics = get_ordered_metric_names(mode)
 
-    agg_spec = {
+    agg_spec: dict[str, tuple[str, object]] = {
         "vad_mask": ("vad_mask", "first"),
         "asr_audio_in": ("asr_audio_in", "first"),
         "n_rows": ("combo_key", "count"),
@@ -308,12 +268,9 @@ def get_combo_key_summary(
         "worst_rank": ("rank_within_run", "max"),
         "top1_count": ("rank_within_run", lambda s: int((s == 1).sum())),
         "top3_count": ("rank_within_run", lambda s: int((s <= 3).sum())),
-        f"mean_{primary_metric}": (primary_metric, "mean"),
-        f"best_{primary_metric}": (primary_metric, "max"),
-        f"worst_{primary_metric}": (primary_metric, "min"),
     }
 
-    for metric in secondary_metrics:
+    for metric in ordered_metrics:
         if metric in df.columns:
             agg_spec[f"mean_{metric}"] = (metric, "mean")
             agg_spec[f"best_{metric}"] = (metric, "max")
@@ -329,9 +286,19 @@ def get_combo_key_summary(
     summary["top3_share"] = summary["top3_count"] / total_runs if total_runs > 0 else 0.0
     summary["same_source_pair"] = summary["vad_mask"] == summary["asr_audio_in"]
 
+    metric_sort_cols = [
+        f"mean_{metric}" for metric in ordered_metrics
+        if f"mean_{metric}" in summary.columns
+    ]
+    metric_sort_ascending = [
+        get_metric_sort_ascending(metric)
+        for metric in ordered_metrics
+        if f"mean_{metric}" in summary.columns
+    ]
+
     return summary.sort_values(
-        by=["mean_rank", f"mean_{primary_metric}"],
-        ascending=[True, False],
+        by=["mean_rank", *metric_sort_cols],
+        ascending=[True, *metric_sort_ascending],
     ).reset_index(drop=True)
 
 
@@ -364,29 +331,6 @@ def get_audio_derivative_group_summary(
     df = df[df["mode"] == mode].copy()
     df = _filter_dataset(df, dataset_name)
 
-    primary_metric = get_primary_metric_name(mode, "rq3")
-    metric_cols = [c for c in [
-        primary_metric,
-        "best_macro_mean_f1",
-        "best_macro_mean_recall",
-        "macro_mean_mean_dice_eos_tp",
-        "best_macro_mean_mean_dice_eos_tp",
-        "macro_mean_n_cand",
-        "macro_mean_fp",
-    ] if c in df.columns]
-
-    sort_cols = []
-    if mode == "full_gt":
-        if "best_macro_mean_f1" in df.columns:
-            sort_cols.append("best_macro_mean_f1")
-        if "macro_mean_f1" in df.columns:
-            sort_cols.append("macro_mean_f1")
-    else:
-        if "best_macro_mean_recall" in df.columns:
-            sort_cols.append("best_macro_mean_recall")
-        if "macro_mean_recall" in df.columns:
-            sort_cols.append("macro_mean_recall")
-
     keep_cols = [
         c for c in [
             "audio_derivative_group",
@@ -394,13 +338,55 @@ def get_audio_derivative_group_summary(
             "best_combo_key",
             "best_vad_mask",
             "best_asr_audio_in",
-            *metric_cols,
+            "macro_mean_f1",
+            "best_macro_mean_f1",
+            "macro_mean_recall",
+            "best_macro_mean_recall",
+            "macro_mean_dice_eos_recall",
+            "best_macro_mean_dice_eos_recall",
+            "macro_mean_mean_dice_eos_tp",
+            "best_macro_mean_mean_dice_eos_tp",
+            "macro_mean_insertion_rate",
+            "best_macro_mean_insertion_rate",
+            "macro_mean_n_cand",
+            "macro_mean_fp",
         ] if c in df.columns
     ]
 
     result = df[keep_cols].copy()
 
+    if mode == "full_gt":
+        sort_candidates = [
+            "best_macro_mean_f1",
+            "macro_mean_f1",
+            "best_macro_mean_recall",
+            "macro_mean_recall",
+            "best_macro_mean_dice_eos_recall",
+            "macro_mean_dice_eos_recall",
+            "best_macro_mean_mean_dice_eos_tp",
+            "macro_mean_mean_dice_eos_tp",
+            "best_macro_mean_insertion_rate",
+            "macro_mean_insertion_rate",
+        ]
+    else:
+        sort_candidates = [
+            "best_macro_mean_recall",
+            "macro_mean_recall",
+            "best_macro_mean_dice_eos_recall",
+            "macro_mean_dice_eos_recall",
+            "best_macro_mean_mean_dice_eos_tp",
+            "macro_mean_mean_dice_eos_tp",
+            "best_macro_mean_insertion_rate",
+            "macro_mean_insertion_rate",
+        ]
+
+    sort_cols = [c for c in sort_candidates if c in result.columns]
+    sort_ascending = [("insertion_rate" in c) for c in sort_cols]
+
     if sort_cols:
-        result = result.sort_values(by=sort_cols, ascending=[False] * len(sort_cols))
+        result = result.sort_values(
+            by=sort_cols,
+            ascending=sort_ascending,
+        )
 
     return result.reset_index(drop=True)

@@ -7,11 +7,11 @@ This includes:
 - 0) Building the GT dict from cleaned excels
 - 1) Evaluating each workspace against GT (detailed + summary)
 - 2) Global combo-ranking of nvv annotation configuration sets (tracks) (per dataset)
-- 3) Selection of best k (full-GT) or top-n combo (part-GT) annotation configuration sets (tracks)
+- 3) Selection of best k (full-GT) or selected set (part-GT)
 - 4) Plotting greedy forward selection curves (full-GT)
-- 5) Union evaluation for best-k /top-n set
-- 6) Exporting clips for best-k /top-nset
-- 7) Final pipeline quality evaluation for best-k /top-n set
+- 5) Union evaluation for selected set
+- 6) Exporting clips for selected set
+- 7) Final pipeline quality evaluation for selected set
 
 CLI usage:
     python run_evaluation.py --config ./config/config.yaml
@@ -206,9 +206,10 @@ def step_3_best_k_selection(
     evaluable_by_dataset: Dict[str, List[str]],
     gt_dict: Dict[str, List[dict]],
     gt_mode: str,
+    part_gt_additional_selected_set: List[str],
 ) -> tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], pd.DataFrame]:
     """
-    Step 3: Best-k / Top-n selection per dataset.
+    Step 3: Best-k / selected-set construction per dataset.
     """
     trace_df, f1_vs_k_df, best_set_df = run_best_k_selection_for_dataset(
         dataset=ds,
@@ -228,6 +229,7 @@ def step_3_best_k_selection(
         evaluate_onset=EVAL_EVALUATE_ONSET,
         evaluate_offset=EVAL_EVALUATE_OFFSET,
         match_labels=EVAL_MATCH_LABELS,
+        part_gt_additional_selected_set=part_gt_additional_selected_set,
     )
     return trace_df, f1_vs_k_df, best_set_df
 
@@ -275,7 +277,7 @@ def step_5_union_evaluation(
 
 def step_6a_load_selected_set(*, ws, gt_mode: str) -> pd.DataFrame:
     """
-    Step 6a: Load selected set (best k / top-n) for dataset.
+    Step 6a: Load selected set for dataset.
     """
     best_k_df = load_global_best_k_set(ws.evaluation, mode=gt_mode)
     print(best_k_df.to_string(index=False))
@@ -286,6 +288,10 @@ def step_6a_load_selected_set(*, ws, gt_mode: str) -> pd.DataFrame:
 def step_6b_export_clips(*, ds, ws, gt_mode: str, best_k_df: pd.DataFrame) -> None:
     """
     Step 6b: Export clips for selected set (dataset).
+
+    Note: (toDo)
+        Current export uses only the first row metadata as selector input.
+        This affects clip export behavior only, not evaluation metrics.
     """
     if best_k_df is None or best_k_df.empty:
         print("No selected set found. Skipping clip export.")
@@ -418,7 +424,7 @@ def run_evaluation_for_dataset(
     ws_by_dataset,
 ) -> None:
     """
-    Run evaluation Steps 1–7 for a single dataset.
+    Run evaluation Steps 1–8 for a single dataset.
     """
     print_header(
         title=f"▶ Collect evaluable IDs — dataset={ds.name}",
@@ -467,7 +473,7 @@ def run_evaluation_for_dataset(
     )
 
     print_header(
-        title=f"▶ Best k (full-GT) / top n Selection (part-GT) - dataset={ds.name}",
+        title=f"▶ Best-k / selected-set construction - dataset={ds.name}",
         subtitle=f"GT_MODE={gt_mode}, Evaluation dir: {ws.evaluation}",
     )
     step_3_best_k_selection(
@@ -476,6 +482,7 @@ def run_evaluation_for_dataset(
         evaluable_by_dataset=evaluable_by_dataset,
         gt_dict=gt_dict,
         gt_mode=gt_mode,
+        part_gt_additional_selected_set=config.evaluation.part_gt_additional_selected_set,
     )
 
     print_header(
@@ -500,7 +507,7 @@ def run_evaluation_for_dataset(
     )
 
     print_header(
-        title=f"▶ Load and check best k / top-n selected set — dataset={ds.name}",
+        title=f"▶ Load and check best k / selected set — dataset={ds.name}",
         subtitle=f"Mode: {gt_mode}",
     )
     best_k_df = step_6a_load_selected_set(
@@ -509,7 +516,7 @@ def run_evaluation_for_dataset(
     )
 
     print_header(
-        title=f"▶ Export clips for best k / top-n set — dataset={ds.name}",
+        title=f"▶ Export clips for best k / selected set — dataset={ds.name}",
         subtitle=f"Mode: {gt_mode}",
     )
     step_6b_export_clips(
@@ -548,9 +555,10 @@ def run_evaluation_for_dataset(
         gt_mode=gt_mode,
     )
 
+
 def run_evaluation_from_config(config) -> None:
     """
-    Run the evaluation pipeline using ONLY the loaded unified config object.
+    Run the evaluation pipeline using only the loaded unified config object.
     """
     print_header("▶ Setup Evaluation Configuration")
 
@@ -614,6 +622,7 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 
+
 # --- EXAMPLE USAGE ---
-# (pipeline_eval) cd <project_root>
+# (nvv_isolation_pipeline) cd <project_root>
 # python run_evaluation.py --config ./config/config.yaml

@@ -15,9 +15,11 @@ from config.path_factory import (
     get_experiment_rq2a_single_csv_path,
     get_experiment_rq2a_selected_set_csv_path,
     get_experiment_rq2b_csv_path,
-    get_experiment_rq3_csv_path,
+    get_experiment_rq3_global_csv_path,
+    get_experiment_rq3_label_csv_path,
+    get_experiment_rq_results_xlsx_path,
 )
-from evaluation.eval_io import write_csv_atomic
+from evaluation.eval_io import write_csv_atomic, write_multi_sheet_xlsx_atomic
 from evaluation.rq_results_workspace import collect_rq_results_from_artifacts
 from evaluation.eval_io import validate_mode
 from utils.io import ensure_dir, load_yaml
@@ -77,16 +79,29 @@ def _grid_keys_and_aliases(grid_keys: list[str]) -> list[tuple[str, str]]:
     return aliases
 
 
-def _find_resolved_config_paths(experiment_root: Path) -> list[Path]:
+def _find_resolved_config_paths(experiment_root: Path, mode: str) -> list[Path]:
     """
-    Find resolved config YAML files directly below the experiment root.
+    Find resolved config YAML files for one evaluation mode.
+
+    Preferred layout:
+        <experiment_root>/**/configs/<mode>/*_config.yaml
+
+    Fallback layout:
+        <experiment_root>/**/*_config.yaml
 
     Args:
         experiment_root: Experiment root directory.
+        mode: Evaluation mode.
 
     Returns:
         Sorted list of resolved config YAML paths.
     """
+    validate_mode(mode)
+
+    config_paths = sorted(experiment_root.rglob(f"configs/{mode}/*_config.yaml"))
+    if config_paths:
+        return config_paths
+
     config_paths = sorted(experiment_root.rglob("*_config.yaml"))
     if not config_paths:
         raise FileNotFoundError(
@@ -182,14 +197,15 @@ def get_results_experiment(
     experiment_root = Path(experiment_root)
     processed_root = experiment_root.parent
 
-    resolved_cfg_paths = _find_resolved_config_paths(experiment_root)
+    resolved_cfg_paths = _find_resolved_config_paths(experiment_root, mode)
     key_aliases = _grid_keys_and_aliases(grid_keys)
 
     rq1_frames: list[pd.DataFrame] = []
     rq2a_single_frames: list[pd.DataFrame] = []
     rq2a_selected_set_frames: list[pd.DataFrame] = []
     rq2b_frames: list[pd.DataFrame] = []
-    rq3_frames: list[pd.DataFrame] = []
+    rq3_label_frames: list[pd.DataFrame] = []
+    rq3_global_frames: list[pd.DataFrame] = []
 
     for resolved_cfg_path in resolved_cfg_paths:
         resolved_cfg = load_yaml(resolved_cfg_path)
@@ -233,20 +249,23 @@ def get_results_experiment(
 
             rq2a_single_df = _prepend_metadata(rq2a_single_df, meta)
             rq2b_df = _prepend_metadata(rq_results["rq2b"], meta)
-            rq3_df = _prepend_metadata(rq_results["rq3"], meta)
+            rq3_label_df = _prepend_metadata(rq_results["rq3_label"], meta)
+            rq3_global_df = _prepend_metadata(rq_results["rq3_global"], meta)
 
             rq1_frames.append(rq1_df)
             rq2a_single_frames.append(rq2a_single_df)
             rq2a_selected_set_frames.append(rq2a_selected_set_df)
             rq2b_frames.append(rq2b_df)
-            rq3_frames.append(rq3_df)
+            rq3_label_frames.append(rq3_label_df)
+            rq3_global_frames.append(rq3_global_df)
 
     return {
         "rq1": pd.concat(rq1_frames, ignore_index=True),
         "rq2a_single": pd.concat(rq2a_single_frames, ignore_index=True),
         "rq2a_selected_set": pd.concat(rq2a_selected_set_frames, ignore_index=True),
         "rq2b": pd.concat(rq2b_frames, ignore_index=True),
-        "rq3": pd.concat(rq3_frames, ignore_index=True),
+        "rq3_label": pd.concat(rq3_label_frames, ignore_index=True),
+        "rq3_global": pd.concat(rq3_global_frames, ignore_index=True),
     }
 
 
@@ -276,7 +295,9 @@ def write_results_experiment(
         "rq2a_single": get_experiment_rq2a_single_csv_path(Path(experiment_root), mode),
         "rq2a_selected_set": get_experiment_rq2a_selected_set_csv_path(Path(experiment_root), mode),
         "rq2b": get_experiment_rq2b_csv_path(Path(experiment_root), mode),
-        "rq3": get_experiment_rq3_csv_path(Path(experiment_root), mode),
+        "rq3_label": get_experiment_rq3_label_csv_path(Path(experiment_root), mode),
+        "rq3_global": get_experiment_rq3_global_csv_path(Path(experiment_root), mode),
+
     }
 
     written: dict[str, Path] = {}
@@ -325,5 +346,20 @@ def run_results_experiment(
     print("\nWritten experiment RQ artifacts:")
     for key, path in written.items():
         print(f"  {key}: {path}")
+
+    xlsx_path = get_experiment_rq_results_xlsx_path(Path(experiment_root), mode)
+
+    write_multi_sheet_xlsx_atomic(
+        sheets={
+            "rq1": results["rq1"],
+            "rq2a_single": results["rq2a_single"],
+            "rq2a_selected_set": results["rq2a_selected_set"],
+            "rq2b": results["rq2b"],
+            "rq3_label": results["rq3_label"],
+            "rq3_global": results["rq3_global"],
+        },
+        out_path=xlsx_path,
+    )
+    written["xlsx"] = xlsx_path
 
     return results

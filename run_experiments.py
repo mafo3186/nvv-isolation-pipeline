@@ -29,12 +29,16 @@ Experiment YAML format:
 Output structure (relative to the base processed_root):
     <processed_root>/<experiment_name>/
         <parent_output_rel>/
-            001_config.yaml
             001_<dataset_name>_<run_hash>/per_audio/...
-            001_<dataset_name>_<run_hash>/global/evaluation/...
-            002_config.yaml
+            001_<dataset_name>_<run_hash>/global/...
             002_<dataset_name>_<run_hash>/...
             ...
+            configs/
+                <gt_mode>/
+                    001_config.yaml
+                    002_config.yaml
+                    ...
+            evaluation/
 
 CLI usage:
     python run_experiments.py \\
@@ -354,12 +358,25 @@ def run_experiments(
 
             if config_parent_rel is None:
                 raise ValueError("workspace.datasets is empty or missing in YAML.")
+            
+            gt_mode = str(run_cfg["evaluation"]["gt_mode"])
 
             # Write fully resolved config.yaml into the experiment folder.
             if str(config_parent_rel) == ".":
-                resolved_cfg_path = experiment_base / f"{run_index:03d}_config.yaml"
+                resolved_cfg_path = (
+                    experiment_base 
+                    /"configs"
+                    / gt_mode
+                    / f"{run_index:03d}_config.yaml"
+                )
             else:
-                resolved_cfg_path = experiment_base / config_parent_rel / f"{run_index:03d}_config.yaml"
+                resolved_cfg_path = (
+                    experiment_base
+                    / config_parent_rel
+                    / "configs"
+                    / gt_mode
+                    / f"{run_index:03d}_config.yaml"
+                )
 
             _write_yaml(resolved_cfg_path, run_cfg)
 

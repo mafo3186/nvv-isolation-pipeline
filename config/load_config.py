@@ -80,6 +80,7 @@ class EvaluationConfig:
     gt_mode: str
     gt_units: list[GtExcelUnitPaths]
     gt_truth_paths: list[Path]
+    part_gt_additional_selected_set: list[str]
 
 
 @dataclass(frozen=True)
@@ -217,6 +218,40 @@ def _resolve_sources(
 
     return items
 
+def _validate_part_gt_additional_selected_set(
+    *,
+    gt_mode: str,
+    part_gt_additional_selected_set: list[str],
+) -> None:
+    """
+    Validate the mode-specific semantics of the part_gt additional selected set.
+
+    Rules:
+    - full_gt: the list must be empty
+    - part_gt: the list must contain at least one combo_key
+
+    Arguments:
+        gt_mode: Evaluation mode.
+        part_gt_additional_selected_set: Configured additional combo_keys for part_gt.
+    """
+    if gt_mode == "full_gt":
+        if part_gt_additional_selected_set:
+            raise ValueError(
+                '"evaluation.part_gt_additional_selected_set" must be empty when '
+                '"evaluation.gt_mode" == "full_gt".'
+            )
+        return
+
+    if gt_mode == "part_gt":
+        if not part_gt_additional_selected_set:
+            raise ValueError(
+                '"evaluation.part_gt_additional_selected_set" must contain at least one '
+                'combo_key when "evaluation.gt_mode" == "part_gt".'
+            )
+        return
+
+    raise ValueError(f'Invalid evaluation.gt_mode: {gt_mode!r}')
+
 
 def load_config(cfg_path: str | Path) -> AppConfig:
     """
@@ -328,11 +363,21 @@ def load_config(cfg_path: str | Path) -> AppConfig:
     gt_mode = eval_section.get("gt_mode")
     if gt_mode not in {"full_gt", "part_gt"}:
         raise ValueError(f'Invalid evaluation.gt_mode: {gt_mode}')
+    part_gt_additional_selected_set = _require_list_of_str(
+        eval_section,
+        "part_gt_additional_selected_set",
+        field_path="evaluation.part_gt_additional_selected_set",
+    )
+    _validate_part_gt_additional_selected_set(
+        gt_mode=str(gt_mode),
+        part_gt_additional_selected_set=part_gt_additional_selected_set,
+    )
 
     evaluation = EvaluationConfig(
         gt_mode=str(gt_mode),
         gt_units=get_gt_units(cfg_path, project=project),
         gt_truth_paths=get_gt_truth_excel_paths(cfg_path, project=project),
+        part_gt_additional_selected_set=part_gt_additional_selected_set,
     )
 
     return AppConfig(
@@ -425,6 +470,7 @@ def print_config(cfg: AppConfig) -> None:
     print("\n[EVALUATION]")
     print(f"  gt_mode: {cfg.evaluation.gt_mode}")
     print(f"  gt_units: {[u.name for u in cfg.evaluation.gt_units]}")
+    print(f"  part_gt_additional_selected_set: {cfg.evaluation.part_gt_additional_selected_set}")
     print("  gt_truth_paths:")
     for p in cfg.evaluation.gt_truth_paths:
         print(f"    - {p}")

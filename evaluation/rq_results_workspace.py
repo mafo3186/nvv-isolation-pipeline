@@ -7,14 +7,17 @@ from config.path_factory import (
     get_global_combo_ranking_csv_path,
     get_global_best_k_union_summary_csv_path,
     get_rq2_audio_derivatives_csv_path,
-    get_rq3_nvv_coverage_csv_path,
+    get_rq3_nvv_coverage_label_csv_path,
+    get_rq3_nvv_coverage_global_csv_path,
     get_rq1_pipeline_capability_csv_path,
     get_rq2_config_ranking_single_csv_path,
     get_rq2_config_ranking_selected_set_csv_path,
     get_rq2_config_audio_derivatives_rq_csv_path,
-    get_rq3_nvv_coverage_rq_csv_path,
+    get_rq3_nvv_coverage_label_rq_csv_path,
+    get_rq3_nvv_coverage_global_rq_csv_path,
+    get_rq_results_xlsx_path,
 )
-from evaluation.eval_io import write_csv_atomic, load_csv_or_fail, validate_mode
+from evaluation.eval_io import write_csv_atomic, load_csv_or_fail, validate_mode, write_multi_sheet_xlsx_atomic
 from utils.io import ensure_dir
 
 
@@ -85,8 +88,8 @@ def collect_rq2a_selected_set_result(
     mode: str,
 ) -> pd.DataFrame:
     """
-    Load the selected-set union result artifact for RQ2a and add the delta
-    against the best single configuration.
+    Load the selected-set union result artifact (RQ2a) and add delta columns against
+    the best single configuration for all shared macro_mean_* metrics.
 
     Args:
         evaluation_dir: Dataset evaluation root (workspace/global/evaluation).
@@ -101,23 +104,26 @@ def collect_rq2a_selected_set_result(
     ranking_path = get_global_combo_ranking_csv_path(Path(evaluation_dir), mode)
 
     union_df = load_csv_or_fail(union_path).copy()
-    ranking_df = load_csv_or_fail(ranking_path)
+    ranking_df = load_csv_or_fail(ranking_path).copy()
 
-    if mode == "full_gt":
-        metric = "macro_mean_f1"
-    else:
-        metric = "macro_mean_recall"
+    if union_df.shape[0] == 0:
+        raise RuntimeError(f"Union artifact contains 0 rows: {union_path}")
+    if ranking_df.shape[0] == 0:
+        raise RuntimeError(f"Ranking artifact contains 0 rows: {ranking_path}")
 
-    if metric not in ranking_df.columns:
-        raise KeyError(f"Expected column '{metric}' in ranking artifact: {ranking_path}")
+    best_single_row = ranking_df.iloc[0]
 
-    if metric not in union_df.columns:
-        raise KeyError(f"Expected column '{metric}' in union artifact: {union_path}")
+    union_metric_cols = [c for c in union_df.columns if c.startswith("macro_mean_")]
+    ranking_metric_cols = [c for c in ranking_df.columns if c.startswith("macro_mean_")]
+    shared_metric_cols = sorted(set(union_metric_cols) & set(ranking_metric_cols))
 
-    best_single_value = ranking_df.iloc[0][metric]
-    union_value = union_df.iloc[0][metric]
-
-    union_df[f"delta_vs_best_single_{metric}"] = union_value - best_single_value
+    for metric_col in shared_metric_cols:
+        union_value = pd.to_numeric(union_df[metric_col], errors="coerce")
+        best_single_value = pd.to_numeric(
+            pd.Series([best_single_row[metric_col]] * len(union_df)),
+            errors="coerce",
+        )
+        union_df[f"delta_vs_best_single_{metric_col}"] = union_value - best_single_value
 
     return union_df
 
@@ -142,23 +148,43 @@ def collect_rq2b_audio_derivatives_result(
     return load_csv_or_fail(src)
 
 
-def collect_rq3_nvv_coverage_result(
+def collect_rq3_nvv_coverage_label_result(
     evaluation_dir: Path,
     mode: str,
 ) -> pd.DataFrame:
     """
-    Load the RQ3 NVV coverage artifact.
+    Load the RQ3 NVV label/event coverage artifact.
 
     Args:
         evaluation_dir: Dataset evaluation root (workspace/global/evaluation).
         mode: Evaluation mode ("full_gt" or "part_gt").
 
     Returns:
-        DataFrame containing the RQ3 coverage result.
+        DataFrame containing the RQ3 label/event coverage result.
     """
     validate_mode(mode)
 
-    src = get_rq3_nvv_coverage_csv_path(Path(evaluation_dir), mode)
+    src = get_rq3_nvv_coverage_label_csv_path(Path(evaluation_dir), mode)
+    return load_csv_or_fail(src)
+
+
+def collect_rq3_nvv_coverage_global_result(
+    evaluation_dir: Path,
+    mode: str,
+) -> pd.DataFrame:
+    """
+    Load the RQ3 NVV global coverage artifact.
+
+    Args:
+        evaluation_dir: Dataset evaluation root (workspace/global/evaluation).
+        mode: Evaluation mode ("full_gt" or "part_gt").
+
+    Returns:
+        DataFrame containing the RQ3 global coverage result.
+    """
+    validate_mode(mode)
+
+    src = get_rq3_nvv_coverage_global_csv_path(Path(evaluation_dir), mode)
     return load_csv_or_fail(src)
 
 
@@ -186,8 +212,9 @@ def _build_rq1_comparison(
     Raises:
         RuntimeError: If no baseline row is found in the ranking.
     """
-    # Metric columns shared between ranking and capability summary
-    metric_cols = [c for c in ranking_df.columns if c.startswith("macro_mean_")]
+    ranking_metric_cols = {c for c in ranking_df.columns if c.startswith("macro_mean_")}
+    cap_metric_cols = {c for c in cap_summary_df.columns if c.startswith("macro_mean_")}
+    metric_cols = sorted(ranking_metric_cols | cap_metric_cols)
 
     # Baseline: identify by vad_mask and asr_audio_in, not by combo_key
     baseline_mask = (
@@ -277,7 +304,8 @@ def collect_rq_results_from_artifacts(
       rq2a_single       - single-configuration ranking
       rq2a_selected_set - selected-set / union analysis
       rq2b              - audio derivative aggregation
-      rq3               - NVV coverage analysis
+      rq3_label         - NVV label/event coverage analysis
+      rq3_global        - NVV global coverage analysis
 
     Args:
         evaluation_dir: Dataset evaluation root (workspace/global/evaluation).
@@ -293,7 +321,8 @@ def collect_rq_results_from_artifacts(
         "rq2a_single": collect_rq2a_config_ranking_result(evaluation_dir=evaluation_dir, mode=mode),
         "rq2a_selected_set": collect_rq2a_selected_set_result(evaluation_dir=evaluation_dir, mode=mode),
         "rq2b": collect_rq2b_audio_derivatives_result(evaluation_dir=evaluation_dir, mode=mode),
-        "rq3": collect_rq3_nvv_coverage_result(evaluation_dir=evaluation_dir, mode=mode),
+        "rq3_label": collect_rq3_nvv_coverage_label_result(evaluation_dir=evaluation_dir, mode=mode),
+        "rq3_global": collect_rq3_nvv_coverage_global_result(evaluation_dir=evaluation_dir, mode=mode),
     }
 
 
@@ -310,12 +339,13 @@ def write_rq_results(
       rq2_config_ranking_single_<mode>.csv
       rq2_config_ranking_selected_set_<mode>.csv
       rq2_config_audio_derivatives_<mode>.csv
-      rq3_nvv_coverage_<mode>.csv
+      rq3_nvv_coverage_label_<mode>.csv
+      rq3_nvv_coverage_global_<mode>.csv
 
     Args:
         evaluation_dir: Dataset evaluation root (workspace/global/evaluation).
         mode: Evaluation mode ("full_gt" or "part_gt").
-        results: Dict returned by get_rq_results().
+        results: Dict returned by collect_rq_results_from_artifacts().
 
     Returns:
         Dict mapping result keys to written file paths.
@@ -329,7 +359,8 @@ def write_rq_results(
         "rq2a_single": get_rq2_config_ranking_single_csv_path(Path(evaluation_dir), mode),
         "rq2a_selected_set": get_rq2_config_ranking_selected_set_csv_path(Path(evaluation_dir), mode),
         "rq2b": get_rq2_config_audio_derivatives_rq_csv_path(Path(evaluation_dir), mode),
-        "rq3": get_rq3_nvv_coverage_rq_csv_path(Path(evaluation_dir), mode),
+        "rq3_label": get_rq3_nvv_coverage_label_rq_csv_path(Path(evaluation_dir), mode),
+        "rq3_global": get_rq3_nvv_coverage_global_rq_csv_path(Path(evaluation_dir), mode),
     }
 
     written: dict[str, Path] = {}
@@ -339,5 +370,21 @@ def write_rq_results(
             raise KeyError(f"Missing RQ result '{key}' in results dict.")
         write_csv_atomic(results[key], out_path)
         written[key] = out_path
+
+    xlsx_path = get_rq_results_xlsx_path(Path(evaluation_dir), mode)
+
+    write_multi_sheet_xlsx_atomic(
+        sheets={
+            "rq1": results["rq1"],
+            "rq2a_single": results["rq2a_single"],
+            "rq2a_selected_set": results["rq2a_selected_set"],
+            "rq2b": results["rq2b"],
+            "rq3_label": results["rq3_label"],
+            "rq3_global": results["rq3_global"],
+        },
+        out_path=xlsx_path,
+    )
+    written["xlsx"] = xlsx_path
+ 
 
     return written

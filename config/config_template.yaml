@@ -56,12 +56,13 @@ workspace:
     input_rel: <relative folder path to raw_root>
     output_rel: <relative folder path to processed_root>
 evaluation:
+  gt_mode: full_gt # "full_gt" or "part_gt"
+  part_gt_additional_selected_set: [<selected_set_derived_from_full_gt_mode>] # for part_gt: list of additional combo_keys that are combined with the best single configuration of the target dataset (derived from full-gt mode results on full-gt dataset)
   gt_units:
   - name: <workspace_dataset_name> # should match the dataset name in workspace.datasets
     raw_excel_rel_path: <relative excel-file-path to raw_root>
     cleaned_excel_rel_path: <relative excel-file-path to processed_root>
   gt_labels_export_rel: <relative folder path to processed_root>
-  gt_mode: full_gt # "full_gt" or "part_gt"
   gt_id_column: <gt id column name in excel>
   gt_merged_cleaned_excel_rel: null # optional if more than one gt_uni exists - see config_template_vocal.yaml for usage example
 

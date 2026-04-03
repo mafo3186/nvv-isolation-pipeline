@@ -61,7 +61,8 @@ workspace:
 
 # --- Evaluation / Ground Truth / Preprocessing configuration: special case VOCALS concrete paths) ---
 evaluation:
-
+  gt_mode: "full_gt"   # "full_gt" or "part_gt"; controls which evaluation metrics are used for evaluation
+  part_gt_additional_selected_set: []
   # Ground-truth “units” (one per original excel)
   gt_units:
     - name: "VOCAL_RA1"
@@ -80,7 +81,7 @@ evaluation:
       vocals_dataset_root_rel: "Annotation_Main_20260202/Arya/ra2_dataset"
       vocals_subset_copy_rel: "VOCAL/RA2"
 
-  gt_mode: "full_gt"   # "full_gt" or "part_gt"; controls which evaluation metrics are used for evaluation
+
   # Column name used to map GT rows -> audio_id
   gt_id_column: "video_id"
 

@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Iterable, Optional, Any
 import pandas as pd
+from evaluation.analysis_metrics import (
+    get_ordered_metric_names,
+    get_metric_sort_ascending,
+    get_metric_label,
+)
 from evaluation.eval_io import validate_mode
 
 
@@ -43,7 +48,7 @@ def _filter_dataset(df: pd.DataFrame, dataset_name: Optional[str]) -> pd.DataFra
 
 def _sort_by_metrics(df: pd.DataFrame, metric_cols: list[str]) -> pd.DataFrame:
     """
-    Sort descending by metric columns.
+    Sort by canonical metric columns using canonical sort directions.
 
     Args:
         df: Input DataFrame.
@@ -53,9 +58,12 @@ def _sort_by_metrics(df: pd.DataFrame, metric_cols: list[str]) -> pd.DataFrame:
         Sorted DataFrame.
     """
     _require_columns(df, metric_cols, label="metric sort")
+
+    ascending = [get_metric_sort_ascending(col) for col in metric_cols]
+
     return df.sort_values(
         by=metric_cols,
-        ascending=[False] * len(metric_cols),
+        ascending=ascending,
     ).reset_index(drop=True)
 
 
@@ -116,67 +124,6 @@ def _append_setting_columns(
     return result
 
 
-def get_primary_metric_name(mode: str, rq: str = "rq1") -> str:
-    """
-    Return the primary metric column for a given RQ and mode.
-
-    Args:
-        mode: Evaluation mode.
-        rq: Research question key.
-
-    Returns:
-        Primary metric column name.
-    """
-    validate_mode(mode)
-
-    if rq in {"rq1", "rq2a"}:
-        return "macro_mean_f1" if mode == "full_gt" else "macro_mean_recall"
-
-    if rq == "rq3":
-        return "macro_mean_f1" if mode == "full_gt" else "macro_mean_recall"
-
-    raise ValueError(f"Unsupported rq='{rq}'.")
-
-
-def get_secondary_metric_names(mode: str, rq: str = "rq1") -> list[str]:
-    """
-    Return ordered secondary metrics for sorting and interpretation.
-
-    Args:
-        mode: Evaluation mode.
-        rq: Research question key.
-
-    Returns:
-        Ordered secondary metric column names.
-    """
-    validate_mode(mode)
-
-    if rq in {"rq1", "rq2a"}:
-        if mode == "full_gt":
-            return [
-                "macro_mean_recall", 
-                "macro_mean_dice_eos_recall", 
-                "macro_mean_mean_dice_eos_tp"]
-        return [
-            "macro_mean_dice_eos_recall", 
-            "macro_mean_mean_dice_eos_tp"
-        ]
-
-    if rq == "rq3":
-        if mode == "full_gt":
-            return [
-                "macro_mean_recall", 
-                "macro_mean_dice_eos_recall", 
-                "macro_mean_mean_dice_eos_tp"
-            ]
-        return [
-            "macro_mean_dice_eos_recall", 
-            "macro_mean_mean_dice_eos_tp"
-        ]
-
-    raise ValueError(f"Unsupported rq='{rq}'.")
-
-
 def get_top_runs(
     df_rq1: pd.DataFrame,
     *,
@@ -202,10 +149,7 @@ def get_top_runs(
     df = df_rq1[df_rq1["mode"] == mode].copy()
     df = _filter_dataset(df, dataset_name)
 
-    metric_cols = [
-        get_primary_metric_name(mode, "rq1"),
-        *get_secondary_metric_names(mode, "rq1"),
-    ]
+    metric_cols = get_ordered_metric_names(mode)
 
     return _sort_by_metrics(df, metric_cols).head(top_n).reset_index(drop=True)
 
@@ -238,13 +182,15 @@ def get_top_region_runs(
     df = df_rq1[df_rq1["mode"] == mode].copy()
     df = _filter_dataset(df, dataset_name)
 
-    primary_metric = get_primary_metric_name(mode, "rq1")
+    metric_cols = get_ordered_metric_names(mode)
+    primary_metric = metric_cols[0]
     _require_columns(df, [primary_metric], label="RQ1")
 
     best_score = df[primary_metric].max()
     cutoff = best_score * score_fraction
 
     result = df[df[primary_metric] >= cutoff].copy()
+
     result["primary_metric"] = primary_metric
     result["primary_score"] = result[primary_metric]
     result["best_score"] = best_score
@@ -253,7 +199,6 @@ def get_top_region_runs(
         result[primary_metric] / best_score if best_score != 0 else 0.0
     )
 
-    metric_cols = [primary_metric, *get_secondary_metric_names(mode, "rq1")]
     return _sort_by_metrics(result, metric_cols)
 
 
@@ -380,8 +325,8 @@ def get_combo_key_summary(
     df = df_rq2a[df_rq2a["mode"] == mode].copy()
     df = _filter_dataset(df, dataset_name)
 
-    primary_metric = get_primary_metric_name(mode, "rq2a")
-    secondary_metrics = get_secondary_metric_names(mode, "rq2a")
+    ordered_metrics = get_ordered_metric_names(mode)
+    sort_metric = ordered_metrics[0]
 
     agg_spec: dict[str, tuple[str, Any]] = {
         "vad_mask": ("vad_mask", "first"),
@@ -393,16 +338,17 @@ def get_combo_key_summary(
         "worst_rank": ("rank_within_run", "max"),
         "top1_count": ("rank_within_run", lambda s: int((s == 1).sum())),
         "top3_count": ("rank_within_run", lambda s: int((s <= 3).sum())),
-        f"mean_{primary_metric}": (primary_metric, "mean"),
-        f"best_{primary_metric}": (primary_metric, "max"),
-        f"worst_{primary_metric}": (primary_metric, "min"),
     }
 
-    for metric in secondary_metrics:
+    for metric in ordered_metrics:
         if metric in df.columns:
             agg_spec[f"mean_{metric}"] = (metric, "mean")
-            agg_spec[f"best_{metric}"] = (metric, "max")
-            agg_spec[f"worst_{metric}"] = (metric, "min")
+            if get_metric_sort_ascending(metric):
+                agg_spec[f"best_{metric}"] = (metric, "min")
+                agg_spec[f"worst_{metric}"] = (metric, "max")
+            else:
+                agg_spec[f"best_{metric}"] = (metric, "max")
+                agg_spec[f"worst_{metric}"] = (metric, "min")
 
     if "macro_mean_n_cand" in df.columns:
         agg_spec["mean_macro_mean_n_cand"] = ("macro_mean_n_cand", "mean")
@@ -421,22 +367,22 @@ def get_combo_key_summary(
     summary["same_source_pair"] = summary["vad_mask"] == summary["asr_audio_in"]
 
     return summary.sort_values(
-        by=["mean_rank", f"mean_{primary_metric}"],
-        ascending=[True, False],
+        by=["mean_rank", f"mean_{sort_metric}"],
+        ascending=[True, get_metric_sort_ascending(sort_metric)],
     ).reset_index(drop=True)
 
 
 def get_audio_derivative_group_summary(
-    df_rq3: pd.DataFrame,
+    df_rq2b: pd.DataFrame,
     *,
     mode: str,
     dataset_name: Optional[str] = None,
 ) -> pd.DataFrame:
     """
-    Summarize RQ3 derivative groups.
+    Summarize RQ2b derivative groups.
 
     Args:
-        df_rq3: RQ3 DataFrame.
+        df_rq2b: RQ2b DataFrame.
         mode: Evaluation mode.
         dataset_name: Optional dataset filter.
 
@@ -444,48 +390,48 @@ def get_audio_derivative_group_summary(
         Sorted derivative-group summary.
     """
     validate_mode(mode)
-    _require_columns(df_rq3, ["mode", "audio_derivative_group"], label="RQ3")
+    _require_columns(df_rq2b, ["mode", "audio_derivative_group"], label="RQ2b")
 
-    df = df_rq3[df_rq3["mode"] == mode].copy()
+    df = df_rq2b[df_rq2b["mode"] == mode].copy()
     df = _filter_dataset(df, dataset_name)
 
     keep_cols = [
-        col for col in [
-            "audio_derivative_group",
-            "n_configs",
-            "best_combo_key",
-            "best_vad_mask",
-            "best_asr_audio_in",
-            "macro_mean_f1",
-            "best_macro_mean_f1",
-            "macro_mean_recall",
-            "best_macro_mean_recall",
-            "macro_mean_mean_dice_eos_tp",
-            "best_macro_mean_mean_dice_eos_tp",
-            "macro_mean_n_cand",
-            "macro_mean_fp",
-        ]
-        if col in df.columns
+        "audio_derivative_group",
+        "n_configs",
+        "best_combo_key",
+        "best_vad_mask",
+        "best_asr_audio_in",
     ]
+
+    ordered_metrics = get_ordered_metric_names(mode)
+
+    for metric in ordered_metrics:
+        if metric in df.columns:
+            keep_cols.append(metric)
+
+        best_metric = f"best_{metric}"
+        if best_metric in df.columns:
+            keep_cols.append(best_metric)
+
+    for extra_col in ["macro_mean_n_cand", "macro_mean_fp"]:
+        if extra_col in df.columns:
+            keep_cols.append(extra_col)
 
     result = df[keep_cols].copy()
 
     sort_cols: list[str] = []
-    if mode == "full_gt":
-        if "best_macro_mean_f1" in result.columns:
-            sort_cols.append("best_macro_mean_f1")
-        if "macro_mean_f1" in result.columns:
-            sort_cols.append("macro_mean_f1")
-    else:
-        if "best_macro_mean_recall" in result.columns:
-            sort_cols.append("best_macro_mean_recall")
-        if "macro_mean_recall" in result.columns:
-            sort_cols.append("macro_mean_recall")
+    ascending: list[bool] = []
+
+    for metric in ordered_metrics:
+        best_metric = f"best_{metric}"
+        if best_metric in result.columns:
+            sort_cols.append(best_metric)
+            ascending.append(get_metric_sort_ascending(metric))
 
     if sort_cols:
         result = result.sort_values(
             by=sort_cols,
-            ascending=[False] * len(sort_cols),
+            ascending=ascending,
         )
 
     return result.reset_index(drop=True)
@@ -563,7 +509,8 @@ def collect_comparison_views(
 
     for dataset_name in dataset_names:
         for mode in modes:
-            primary_metric = get_primary_metric_name(mode, "rq1")
+            metric_cols = get_ordered_metric_names(mode)
+            primary_metric = metric_cols[0]
             setting = f"{dataset_name} | {mode}"
 
             top_runs = get_top_runs(
@@ -729,6 +676,7 @@ def collect_comparison_views(
         ),
     }
 
+
 def _concat_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
     """
     Concatenate DataFrames safely.
@@ -742,6 +690,7 @@ def _concat_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     return pd.concat(frames, ignore_index=True)
+
 
 def combine_comparison_views(
     views_by_experiment: dict[str, dict[str, Any]],
@@ -866,6 +815,7 @@ def build_derivative_matrix(
         .reset_index()
     )
 
+
 def build_setting_summary_table(
     setting_overview: pd.DataFrame,
     *,
@@ -975,6 +925,7 @@ def build_best_all_screened_values_matrix(
                 continue
 
             row = top_run.iloc[0].to_dict()
+            ordered_metrics = get_ordered_metric_names(mode)
 
             base_row = {
                 "setting": f"{dataset_name} | {mode}",
@@ -983,19 +934,13 @@ def build_best_all_screened_values_matrix(
                 "selected_set_json": row.get("selected_set_json"),
             }
 
-            if mode == "full_gt":
-                base_row["f1"] = row.get("macro_mean_f1")
-                base_row["recall"] = row.get("macro_mean_recall")
-                base_row["eos_tp"] = row.get("macro_mean_mean_dice_eos_tp")
-
-            elif mode == "part_gt":
-                base_row["recall"] = row.get("macro_mean_recall")
-                base_row["eos_tp"] = row.get("macro_mean_mean_dice_eos_tp")
-                base_row["eos_recall"] = row.get("macro_mean_dice_eos_recall")
-
             for col in param_cols:
                 if col in row:
                     base_row[col] = row.get(col)
+
+            for metric_name in ordered_metrics:
+                if metric_name in row:
+                    base_row[metric_name] = row.get(metric_name)
 
             if "run_id" in row:
                 base_row["run_id"] = row.get("run_id")
@@ -1038,6 +983,7 @@ def build_top_region_parameter_values_matrix(
         .reset_index()
     )
 
+
 def build_top_k_runs_table(
     per_setting: dict[str, dict[str, pd.DataFrame]],
     *,
@@ -1055,6 +1001,13 @@ def build_top_k_runs_table(
     """
     rows: list[dict[str, Any]] = []
 
+    param_cols = [
+        "vad_threshold",
+        "vad_min_silence_ms",
+        "max_duration",
+        "dedup_overlap_ratio",
+    ]
+
     for setting_name, setting_dict in per_setting.items():
         if "top_runs" not in setting_dict:
             continue
@@ -1069,32 +1022,60 @@ def build_top_k_runs_table(
             raise KeyError(f"Missing 'mode' column in top_runs for setting '{setting_name}'.")
 
         mode = str(top_runs["mode"].iloc[0])
-        primary_metric_name = get_primary_metric_name(mode, "rq1")
+        ordered_metrics = get_ordered_metric_names(mode)
 
-        secondary_metrics = get_secondary_metric_names(mode, "rq1")
-        secondary_metric_name = secondary_metrics[0] if len(secondary_metrics) > 0 else None
-        tertiary_metric_name = secondary_metrics[1] if len(secondary_metrics) > 1 else None
+        dataset_name = (
+            str(top_runs["dataset_name"].iloc[0])
+            if "dataset_name" in top_runs.columns
+            else setting_name.split(" | ")[0]
+        )
 
         for idx, row in top_runs.iterrows():
-            rows.append(
-                {
-                    "setting": setting_name,
-                    "rank": idx + 1,
-                    "primary_metric_name": primary_metric_name,
-                    "primary_score": row.get(primary_metric_name),
-                    "secondary_metric_name": secondary_metric_name,
-                    "secondary_score": row.get(secondary_metric_name) if secondary_metric_name else None,
-                    "tertiary_metric_name": tertiary_metric_name,
-                    "tertiary_score": row.get(tertiary_metric_name) if tertiary_metric_name else None,
-                    "vad_threshold": row.get("vad_threshold"),
-                    "vad_min_silence_ms": row.get("vad_min_silence_ms"),
-                    "max_duration": row.get("max_duration"),
-                    "dedup_overlap_ratio": row.get("dedup_overlap_ratio"),
-                    "run_id": row.get("run_id"),
-                }
-            )
+            row_dict: dict[str, Any] = {
+                "rank": idx + 1,
+                "setting": setting_name,
+                "dataset_name": dataset_name,
+                "mode": mode,
+            }
 
-    return pd.DataFrame(rows)
+            for col in param_cols:
+                row_dict[col] = row.get(col)
+
+            for metric_name in ordered_metrics:
+                if metric_name in row.index:
+                    row_dict[metric_name] = row.get(metric_name)
+
+            row_dict["run_id"] = row.get("run_id")
+            rows.append(row_dict)
+
+    result = pd.DataFrame(rows)
+
+    if result.empty:
+        return result
+
+    ordered_cols = [
+        "rank",
+        "setting",
+        "dataset_name",
+        "mode",
+        *param_cols,
+        *[
+            metric_name
+            for mode_name in ["full_gt", "part_gt"]
+            for metric_name in get_ordered_metric_names(mode_name)
+            if metric_name in result.columns
+        ],
+        "run_id",
+    ]
+
+    ordered_cols = [
+        col
+        for i, col in enumerate(ordered_cols)
+        if col in result.columns and col not in ordered_cols[:i]
+    ]
+
+    return result[ordered_cols]
+
 
 def _format_setting_label(dataset_name: str, mode: str) -> str:
     """
@@ -1153,22 +1134,8 @@ def _build_rq1_table_for_mode(df_mode: pd.DataFrame, *, mode: str) -> pd.DataFra
     required = ["dataset_name", "mode", "system"]
     _require_columns(df_mode, required, label="RQ1 capability input")
 
-    if mode == "full_gt":
-        metric_map = {
-            "macro_mean_f1": "F1",
-            "macro_mean_recall": "Recall",
-            "macro_mean_dice_eos_recall": "EOS Recall", #toDo: insert!
-            "macro_mean_mean_dice_eos_tp": "Mean EOS TP",
-        }
-    else:
-        metric_map = {
-            "macro_mean_recall": "Recall",
-            "macro_mean_dice_eos_recall": "EOS Recall", #toDo: insert
-            "macro_mean_mean_dice_eos_tp": "Mean EOS TP",
-            #"insertion_rate": "Insertion Rate", #toDo: insert in csv
-        }
-
-    metric_cols = [col for col in metric_map if col in df_mode.columns]
+    ordered_metrics = get_ordered_metric_names(mode)
+    metric_pairs = [(metric, get_metric_label(metric)) for metric in ordered_metrics if metric in df_mode.columns]
 
     rows: list[dict[str, Any]] = []
 
@@ -1190,24 +1157,24 @@ def _build_rq1_table_for_mode(df_mode: pd.DataFrame, *, mode: str) -> pd.DataFra
             "Setting": setting_label,
             "System": "Baseline",
         }
-        for col in metric_cols:
-            baseline_entry[metric_map[col]] = baseline_row.get(col)
+        for src, dst in metric_pairs:
+            baseline_entry[dst] = baseline_row.get(src)
 
         best_entry = {
             "Setting": setting_label,
             "System": "Best Selected Set",
         }
-        for col in metric_cols:
-            best_entry[metric_map[col]] = best_row.get(col)
+        for src, dst in metric_pairs:
+            best_entry[dst] = best_row.get(src)
 
         delta_entry = {
             "Setting": setting_label,
             "System": "Δ vs Baseline",
         }
-        for col in metric_cols:
-            delta_entry[metric_map[col]] = _safe_metric_delta(
-                best_row.get(col),
-                baseline_row.get(col),
+        for src, dst in metric_pairs:
+            delta_entry[dst] = _safe_metric_delta(
+                best_row.get(src),
+                baseline_row.get(src),
             )
 
         rows.extend([baseline_entry, best_entry, delta_entry])
@@ -1246,6 +1213,7 @@ def build_rq1_capability_tables(results_rq1: pd.DataFrame) -> dict[str, pd.DataF
 
     return out
 
+
 def build_rq2a_single_ranking_tables(
     ranking_single: pd.DataFrame,
     *,
@@ -1281,56 +1249,33 @@ def build_rq2a_single_ranking_tables(
             continue
 
         mode = str(df_setting["mode"].iloc[0])
+        ordered_metrics = get_ordered_metric_names(mode)
 
         base_cols = {
             "rank_within_run": "Rank",
             "vad_mask": "VAD Mask",
             "asr_audio_in": "ASR Audio Input",
         }
+        metric_cols = {
+            metric_name: get_metric_label(metric_name)
+            for metric_name in ordered_metrics
+            if metric_name in df_setting.columns
+        }
 
-        if mode == "full_gt":
-            metric_cols = {
-                "macro_mean_f1": "F1",
-                "macro_mean_recall": "Recall",
-                "macro_mean_dice_eos_recall": "EOS Recall",
-                "macro_mean_mean_dice_eos_tp": "Mean EOS TP",
-            }
-            sort_cols = [
-                "rank_within_run",
-                "macro_mean_f1",
-                "macro_mean_recall",
-                "macro_mean_dice_eos_recall",
-                "macro_mean_mean_dice_eos_tp",
-            ]
-            ascending = [True, False, False, False, False]
+        sort_cols = ["rank_within_run"]
+        ascending = [True]
 
-        elif mode == "part_gt":
-            metric_cols = {
-                "macro_mean_recall": "Recall",
-                "macro_mean_dice_eos_recall": "EOS Recall",
-                "macro_mean_mean_dice_eos_tp": "Mean EOS TP",
-            }
-            sort_cols = [
-                "rank_within_run",
-                "macro_mean_recall",
-                "macro_mean_dice_eos_recall",
-                "macro_mean_mean_dice_eos_tp",
-            ]
-            ascending = [True, False, False, False]
-
-        else:
-            continue
-
-        keep_cols = list(base_cols.keys()) + [c for c in metric_cols if c in df_setting.columns]
-        df_out = df_setting[keep_cols].copy()
-        df_out = df_out.rename(columns={**base_cols, **metric_cols})
+        for metric_name in ordered_metrics:
+            if metric_name in df_setting.columns:
+                sort_cols.append(metric_name)
+                ascending.append(get_metric_sort_ascending(metric_name))
 
         df_out = df_setting.sort_values(
-            by=[c for c in sort_cols if c in df_setting.columns],
-            ascending=ascending[:len([c for c in sort_cols if c in df_setting.columns])],
+            by=sort_cols,
+            ascending=ascending,
         ).reset_index(drop=True)
 
-        keep_cols = list(base_cols.keys()) + [c for c in metric_cols if c in df_out.columns]
+        keep_cols = list(base_cols.keys()) + list(metric_cols.keys())
         df_out = df_out[keep_cols].copy()
         df_out = df_out.rename(columns={**base_cols, **metric_cols})
 
@@ -1340,6 +1285,7 @@ def build_rq2a_single_ranking_tables(
         results[setting] = df_out
 
     return results
+
 
 def build_rq2a_selected_set_tables(
     ranking_single: pd.DataFrame,
@@ -1397,34 +1343,40 @@ def build_rq2a_selected_set_tables(
             continue
 
         mode = str(df_set["mode"].iloc[0])
+        ordered_metrics = get_ordered_metric_names(mode)
 
-        best_single = df_single.sort_values("rank_within_run", ascending=True).iloc[0]
+        sort_cols = ["rank_within_run"]
+        ascending = [True]
+
+        for metric_name in ordered_metrics:
+            if metric_name in df_single.columns:
+                sort_cols.append(metric_name)
+                ascending.append(get_metric_sort_ascending(metric_name))
+
+        best_single = df_single.sort_values(
+            by=sort_cols,
+            ascending=ascending,
+        ).reset_index(drop=True).iloc[0]
+
         best_set = df_set.iloc[0]
-
         best_single_config = f"{best_single.get('vad_mask', '')} + {best_single.get('asr_audio_in', '')}"
 
-        rows: list[dict[str, Any]] = []
+        metric_pairs = [
+            (metric_name, get_metric_label(metric_name))
+            for metric_name in ordered_metrics
+            if metric_name in df_single.columns and metric_name in df_set.columns
+        ]
 
-        if mode == "full_gt":
-            metric_pairs = [
-                ("macro_mean_f1", "F1"),
-                ("macro_mean_recall", "Recall"),
-                ("macro_mean_dice_eos_recall", "EOS Recall"),
-                ("macro_mean_mean_dice_eos_tp", "Mean EOS TP"),
-            ]
-        elif mode == "part_gt":
-            metric_pairs = [
-                ("macro_mean_recall", "Recall"),
-                ("macro_mean_dice_eos_recall", "EOS Recall"),
-                ("macro_mean_mean_dice_eos_tp", "Mean EOS TP"),
-            ]
-        else:
-            continue
+        best_single_k = 1
+        best_set_k = int(best_set.get("best_k")) if pd.notna(best_set.get("best_k")) else None
+        delta_k = (best_set_k - best_single_k) if best_set_k is not None else None
+
+        rows: list[dict[str, Any]] = []
 
         row_single = {
             "Setting": setting,
             "System": "Best Single",
-            "k": 1,
+            "k": best_single_k,
             "Config / Selected Set": best_single_config,
         }
         for src, dst in metric_pairs:
@@ -1434,7 +1386,7 @@ def build_rq2a_selected_set_tables(
         row_set = {
             "Setting": setting,
             "System": "Best Selected Set",
-            "k": best_set.get("best_k"),
+            "k": best_set_k,
             "Config / Selected Set": best_set.get("selected_set_json"),
         }
         for src, dst in metric_pairs:
@@ -1444,26 +1396,153 @@ def build_rq2a_selected_set_tables(
         row_delta = {
             "Setting": setting,
             "System": "Δ vs Best Single",
-            "k": None,
+            "k": delta_k,
             "Config / Selected Set": None,
         }
         for src, dst in metric_pairs:
             a = best_set.get(src)
             b = best_single.get(src)
-            
-        if pd.isna(a) or pd.isna(b):
-            row_delta[dst] = None
-        else:
-            delta = a - b
-            row_delta[dst] = 0.0 if abs(delta) < 1e-12 else delta
+
+            if pd.isna(a) or pd.isna(b):
+                row_delta[dst] = None
+            else:
+                delta = a - b
+                row_delta[dst] = 0.0 if abs(delta) < 1e-12 else delta
 
         rows.append(row_delta)
 
-        results[setting] = pd.DataFrame(rows)
+        df_out = pd.DataFrame(rows)
+
+        if "k" in df_out.columns:
+            df_out["k"] = df_out["k"].apply(
+                lambda x: "" if pd.isna(x) else str(int(x))
+            )
+
+        results[setting] = df_out
 
     return results
 
-def build_rq2b_derivative_tables(derivative_comparison: pd.DataFrame) -> dict[str, pd.DataFrame]:
+def _derive_audio_derivative_group(asr_audio_in: str) -> str:
+    """
+    Map ASR input audio to audio-derivative group.
+
+    Args:
+        asr_audio_in: ASR input audio name.
+
+    Returns:
+        Audio derivative group label.
+    """
+    value = str(asr_audio_in)
+
+    if value in {"original", "std"}:
+        return "original_like"
+    if value in {"std_vocals", "std_vocals_norm"}:
+        return "vocals_like"
+    if value in {"std_background", "std_background_norm"}:
+        return "background_like"
+
+    return "unknown"
+
+
+def inspect_top_n_rq2a_configs_by_group(
+    ranking_single: pd.DataFrame,
+    *,
+    mode: str,
+    group_by: str,
+    top_n: int = 2,
+    setting_order: Optional[list[str]] = None,
+) -> pd.DataFrame:
+    """
+    Inspect top-n RQ2a single configurations per setting and group.
+
+    Supported group_by values:
+    - "audio_derivative_group"
+    - "vad_mask"
+
+    Args:
+        ranking_single: Concatenated RQ2a single-ranking DataFrame.
+        mode: Evaluation mode.
+        group_by: Grouping column or derived grouping key.
+        top_n: Number of top rows to keep per setting/group.
+        setting_order: Optional explicit setting order.
+
+    Returns:
+        Filtered and sorted inspection DataFrame.
+    """
+    validate_mode(mode)
+    if top_n <= 0:
+        raise ValueError(f"top_n must be > 0, got: {top_n}")
+
+    _require_columns(
+        ranking_single,
+        ["setting", "mode", "combo_key", "vad_mask", "asr_audio_in"],
+        label="RQ2a single ranking inspection",
+    )
+
+    df = ranking_single[ranking_single["mode"] == mode].copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    if group_by == "audio_derivative_group":
+        df[group_by] = df["asr_audio_in"].astype(str).apply(_derive_audio_derivative_group)
+    else:
+        if group_by not in df.columns:
+            raise KeyError(f"Missing grouping column: {group_by}")
+
+    ordered_metrics = get_ordered_metric_names(mode)
+
+    sort_cols = ["setting", group_by]
+    ascending = [True, True]
+
+    for metric_name in ordered_metrics:
+        if metric_name in df.columns:
+            sort_cols.append(metric_name)
+            ascending.append(get_metric_sort_ascending(metric_name))
+
+    if "rank_within_run" in df.columns:
+        sort_cols.append("rank_within_run")
+        ascending.append(True)
+
+    df = df.sort_values(
+        by=sort_cols,
+        ascending=ascending,
+    )
+
+    df = (
+        df.groupby(["setting", group_by], as_index=False, group_keys=False)
+        .head(top_n)
+        .copy()
+    )
+
+    if setting_order is not None and "setting" in df.columns:
+        df["setting"] = pd.Categorical(
+            df["setting"],
+            categories=setting_order,
+            ordered=True,
+        )
+        df = df.sort_values(
+            by=["setting", group_by],
+            ascending=[True, True],
+        )
+
+    keep_cols = [
+        "setting",
+        group_by,
+        "combo_key",
+        "vad_mask",
+        "asr_audio_in",
+    ] + [metric_name for metric_name in ordered_metrics if metric_name in df.columns]
+
+    if "rank_within_run" in df.columns:
+        keep_cols.append("rank_within_run")
+
+    return df[keep_cols].reset_index(drop=True)
+
+def build_rq2b_derivative_tables(
+    derivative_comparison: pd.DataFrame,
+    *,
+    setting_order: Optional[list[str]] = None,
+) -> dict[str, pd.DataFrame]:
     """
     Build thesis-ready RQ2b audio-derivative tables split by mode.
 
@@ -1473,6 +1552,7 @@ def build_rq2b_derivative_tables(derivative_comparison: pd.DataFrame) -> dict[st
 
     Args:
         derivative_comparison: Combined derivative comparison table.
+        setting_order: Optional explicit setting order from notebook specs.
 
     Returns:
         {
@@ -1499,7 +1579,8 @@ def build_rq2b_derivative_tables(derivative_comparison: pd.DataFrame) -> dict[st
     }
 
     for _, row in derivative_comparison.iterrows():
-        mode = row["mode"]
+        mode = str(row["mode"])
+        ordered_metrics = get_ordered_metric_names(mode)
 
         best_config = f"{row.get('best_vad_mask', '')} + {row.get('best_asr_audio_in', '')}"
 
@@ -1508,37 +1589,20 @@ def build_rq2b_derivative_tables(derivative_comparison: pd.DataFrame) -> dict[st
             "Audio Derivative": row["audio_derivative_group"],
         }
 
-        if mode == "full_gt":
-            base_row["F1"] = row.get("macro_mean_f1")
-            base_row["Recall"] = row.get("macro_mean_recall")
-            #base_row["EOS Recall"] = row.get("macro_mean_dice_eos_recall") # toDo: insert in csv
-            base_row["Mean EOS TP"] = row.get("macro_mean_mean_dice_eos_tp")
+        for metric_name in ordered_metrics:
+            if metric_name in row.index:
+                base_row[get_metric_label(metric_name)] = row.get(metric_name)
 
-        elif mode == "part_gt":
-            base_row["Recall"] = row.get("macro_mean_recall")
-            #base_row["EOS Recall"] = row.get("macro_mean_dice_eos_recall") #toDo: insert in csv
-            base_row["Mean EOS TP"] = row.get("macro_mean_mean_dice_eos_tp")
-            #base_row["Insertion Rate"] = row.get("insertion_rate") #toDo: insert in csv
-
-        else:
-            continue
-
-        # 👉 Best Config ans Ende
+        # Best Config ans Ende
         base_row["Best Config (VAD Mask + ASR Audio Input)"] = best_config
 
-        rows_by_mode[mode].append(base_row)
+        if mode in rows_by_mode:
+            rows_by_mode[mode].append(base_row)
 
     out = {
         "full_gt": pd.DataFrame(rows_by_mode["full_gt"]),
         "part_gt": pd.DataFrame(rows_by_mode["part_gt"]),
     }
-
-    setting_order = [
-        "nvs38k_EN | full_gt",
-        "nvs38k_EN | part_gt",
-        "VOCAL_RA1 | part_gt",
-        "VOCAL_RA2 | part_gt",
-    ]
 
     derivative_order = [
         "original_like",
@@ -1547,45 +1611,136 @@ def build_rq2b_derivative_tables(derivative_comparison: pd.DataFrame) -> dict[st
         "all_derivatives",
     ]
 
-    if not out["full_gt"].empty:
-        out["full_gt"]["Setting"] = pd.Categorical(
-            out["full_gt"]["Setting"],
-            categories=setting_order,
-            ordered=True,
-        )
-        out["full_gt"]["Audio Derivative"] = pd.Categorical(
-            out["full_gt"]["Audio Derivative"],
-            categories=derivative_order,
-            ordered=True,
-        )
-        out["full_gt"] = out["full_gt"].sort_values(
-            by=["Setting", "Audio Derivative"],
-            ascending=[True, True],
-        ).reset_index(drop=True)
+    for mode_key in ["full_gt", "part_gt"]:
+        if out[mode_key].empty:
+            continue
 
-    if not out["part_gt"].empty:
-        out["part_gt"]["Setting"] = pd.Categorical(
-            out["part_gt"]["Setting"],
-            categories=setting_order,
-            ordered=True,
-        )
-        out["part_gt"]["Audio Derivative"] = pd.Categorical(
-            out["part_gt"]["Audio Derivative"],
+        if setting_order is not None:
+            out[mode_key]["Setting"] = pd.Categorical(
+                out[mode_key]["Setting"],
+                categories=setting_order,
+                ordered=True,
+            )
+
+        out[mode_key]["Audio Derivative"] = pd.Categorical(
+            out[mode_key]["Audio Derivative"],
             categories=derivative_order,
             ordered=True,
         )
-        out["part_gt"] = out["part_gt"].sort_values(
-            by=["Setting", "Audio Derivative"],
-            ascending=[True, True],
+
+        sort_cols = ["Audio Derivative"]
+        ascending = [True]
+
+        if setting_order is not None:
+            sort_cols = ["Setting", "Audio Derivative"]
+            ascending = [True, True]
+
+        out[mode_key] = out[mode_key].sort_values(
+            by=sort_cols,
+            ascending=ascending,
         ).reset_index(drop=True)
 
     return out
 
+def build_rq2b_vad_mask_tables(
+    ranking_single: pd.DataFrame,
+    *,
+    setting_order: Optional[list[str]] = None,
+) -> dict[str, pd.DataFrame]:
+    """
+    Build inspection tables for RQ2 grouped by VAD mask.
 
-def build_rq3_full_gt_tables(df_rq3: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    _require_columns(df_rq3, ["mode", "dataset_name", "label"], label="RQ3 full_gt")
+    Args:
+        ranking_single: Concatenated RQ2a single-ranking DataFrame.
+        setting_order: Optional explicit setting order from notebook specs.
 
-    df_full = df_rq3[df_rq3["mode"] == "full_gt"].copy()
+    Returns:
+        {
+            "full_gt": DataFrame,
+            "part_gt": DataFrame,
+        }
+    """
+    _require_columns(
+        ranking_single,
+        ["setting", "mode", "vad_mask", "combo_key", "asr_audio_in"],
+        label="RQ2b VAD mask table input",
+    )
+
+    out: dict[str, pd.DataFrame] = {}
+
+    for mode in ["full_gt", "part_gt"]:
+        df_mode = ranking_single[ranking_single["mode"] == mode].copy()
+        if df_mode.empty:
+            out[mode] = pd.DataFrame()
+            continue
+
+        ordered_metrics = get_ordered_metric_names(mode)
+
+        group_cols = ["setting", "vad_mask"]
+        agg_dict: dict[str, tuple[str, str]] = {}
+
+        for metric_name in ordered_metrics:
+            if metric_name in df_mode.columns:
+                agg_dict[metric_name] = (metric_name, "mean")
+
+        df_out = (
+            df_mode.groupby(group_cols, dropna=False)
+            .agg(**agg_dict)
+            .reset_index()
+        )
+
+        rename_map = {"setting": "Setting", "vad_mask": "VAD Mask"}
+        for metric_name in ordered_metrics:
+            if metric_name in df_out.columns:
+                rename_map[metric_name] = get_metric_label(metric_name)
+
+        df_out = df_out.rename(columns=rename_map)
+
+        if setting_order is not None and "Setting" in df_out.columns:
+            df_out["Setting"] = pd.Categorical(
+                df_out["Setting"],
+                categories=setting_order,
+                ordered=True,
+            )
+
+        df_out = df_out.sort_values(
+            by=["Setting", "VAD Mask"] if "Setting" in df_out.columns else ["VAD Mask"],
+            ascending=[True, True] if "Setting" in df_out.columns else [True],
+        ).reset_index(drop=True)
+
+        out[mode] = df_out
+
+    return out
+
+
+def build_rq3_full_gt_label_tables(df_rq3_label: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """
+    Build thesis-ready RQ3 full_gt label coverage tables.
+
+    Args:
+        df_rq3_label: Concatenated RQ3 label artifact across settings.
+
+    Returns:
+        Dict mapping setting -> formatted label coverage table.
+    """
+    _require_columns(
+        df_rq3_label,
+        [
+            "mode",
+            "dataset_name",
+            "label",
+            "n_gt_events",
+            "tp",
+            "fn",
+            "recall",
+            "dice_eos_recall",
+            "mean_dice_eos_tp",
+            "mean_overlap_s",
+        ],
+        label="RQ3 full_gt label coverage",
+    )
+
+    df_full = df_rq3_label[df_rq3_label["mode"] == "full_gt"].copy()
     if df_full.empty:
         return {}
 
@@ -1594,87 +1749,75 @@ def build_rq3_full_gt_tables(df_rq3: pd.DataFrame) -> dict[str, pd.DataFrame]:
     for dataset_name in df_full["dataset_name"].drop_duplicates().tolist():
         df_ds = df_full[df_full["dataset_name"] == dataset_name].copy()
         setting = f"{dataset_name} | full_gt"
-        df_ds["Setting"] = setting
 
-        # Split normal label rows and special FP row
-        fp_mask = df_ds["label"].astype(str) == "__FP__"
-        df_fp = df_ds[fp_mask].copy()
-        df_labels = df_ds[~fp_mask].copy()
+        df_ds.insert(0, "Setting", setting)
 
-        rename_map = {
-            "label": "Label",
-            "n_gt_events": "n_gt",
-            "tp": "n_tp",
-            "fn": "n_fn",
-            #"f1": "F1", #toDo: insert in csv
-            "recall": "Recall",
-            "mean_dice_eos": "EOS",
-            #"mean_dice_eos_tp": "Mean EOS TP", #toDo: insert in csv
-            "mean_overlap_s": "Mean Overlap (s)",
-        }
-        df_labels = df_labels.rename(columns=rename_map)
+        df_ds = df_ds.rename(
+            columns={
+                "label": "Label",
+                "n_gt_events": "n_gt_events",
+                "tp": "tp",
+                "fn": "fn",
+                "recall": "Recall",
+                "dice_eos_recall": "EOS Recall",
+                "mean_dice_eos_tp": "Mean EOS TP",
+                "mean_overlap_s": "Mean Overlap (s)",
+            }
+        )
 
         ordered_cols = [
             "Setting",
             "Label",
-            "n_gt",
-            "n_tp",
-            "n_fn",
+            "n_gt_events",
+            "tp",
+            "fn",
             "Recall",
-            "EOS",
+            "EOS Recall",
+            "Mean EOS TP",
             "Mean Overlap (s)",
         ]
-        ordered_cols = [c for c in ordered_cols if c in df_labels.columns]
-        df_labels = df_labels[ordered_cols].copy()
+        df_ds = df_ds[ordered_cols].copy()
 
-        df_labels = df_labels.sort_values(
-            by=["Recall", "EOS"],
-            ascending=[False, False],
+        df_ds = df_ds.sort_values(
+            by=["Recall", "EOS Recall", "Mean EOS TP", "Label"],
+            ascending=[False, False, False, True],
         ).reset_index(drop=True)
 
-        # ---- add FP as Insertion as new row/column ----
-        if not df_fp.empty and "fp" in df_fp.columns:
-            fp_value = df_fp["fp"].iloc[0]
-
-            fp_row = {
-                "Setting": setting,
-                "Label": "__FP__",
-                "n_gt": None,
-                "n_tp": None,
-                "n_fn": None,
-                "Recall": None,
-                "EOS": None,
-                "Mean Overlap (s)": None,
-                "Insertions": fp_value,
-            }
-
-            # FP-Spalte nur für diese Zeile hinzufügen
-            df_labels["Insertions"] = None
-            df_fp_row = pd.DataFrame([fp_row])
-
-            df_out = pd.concat([df_labels, df_fp_row], ignore_index=True)
-        else:
-            df_out = df_labels.copy()
-
-        results[setting] = df_out.reset_index(drop=True)
+        results[setting] = df_ds
 
     return results
 
 
-def build_rq3_part_gt_tables(df_rq3: pd.DataFrame) -> dict[str, pd.DataFrame]:
+def build_rq3_part_gt_event_tables(df_rq3_label: pd.DataFrame) -> dict[str, pd.DataFrame]:
     #toDo: normalize column names for gt/cand label across csvs to avoid this complexity in the table-building code
     """
-    Build thesis-ready RQ3 part_gt event-level tables, one table per dataset/setting.
+    Build thesis-ready RQ3 part_gt event tables.
 
-    Expected input:
-        Event-level RQ3 rows for mode == "part_gt".
+    Args:
+        df_rq3_label: Concatenated RQ3 label artifact across settings.
+            For part_gt this artifact is the event list.
 
     Returns:
-        Dict mapping setting -> DataFrame.
+        Dict mapping setting -> formatted event table.
     """
-    _require_columns(df_rq3, ["mode", "dataset_name"], label="RQ3 part_gt")
+    _require_columns(
+        df_rq3_label,
+        [
+            "mode",
+            "dataset_name",
+            "audio_id",
+            "gt_event_id",
+            "gt_label",
+            "cand_event_id",
+            "cand_label",
+            "status",
+            "dice_eos",
+            "overlap_s",
+        ],
+        label="RQ3 part_gt event list",
+    )
 
-    df_part = df_rq3[df_rq3["mode"] == "part_gt"].copy()
+    df_part = df_rq3_label[df_rq3_label["mode"] == "part_gt"].copy()
     if df_part.empty:
         return {}
 
@@ -1683,92 +1826,179 @@ def build_rq3_part_gt_tables(df_rq3: pd.DataFrame) -> dict[str, pd.DataFrame]:
     for dataset_name in df_part["dataset_name"].drop_duplicates().tolist():
         df_ds = df_part[df_part["dataset_name"] == dataset_name].copy()
         setting = f"{dataset_name} | part_gt"
-        df_ds["Setting"] = setting
 
-        gt_label_col = None
-        cand_label_col = None
+        df_ds.insert(0, "Setting", setting)
 
-        for candidate in ["gt_label", "label_gt"]:
-            if candidate in df_ds.columns:
-                gt_label_col = candidate
-                break
+        df_ds = df_ds.rename(
+            columns={
+                "audio_id": "Audio ID",
+                "gt_event_id": "GT Event ID",
+                "gt_label": "GT Label",
+                "cand_event_id": "Cand Event ID",
+                "cand_label": "Cand Label",
+                "status": "Status",
+                "dice_eos": "EOS",
+                "overlap_s": "Overlap (s)",
+            }
+        )
 
-        for candidate in ["cand_label", "label_cand"]:
-            if candidate in df_ds.columns:
-                cand_label_col = candidate
-                break
-
-        rename_map = {
-            "audio_id": "Audio ID",
-            "gt_event_id": "GT Event ID",
-            "cand_event_id": "Cand Event ID",
-            "status": "Event Type",
-            "dice_eos": "EOS",
-            "overlap_s": "Overlap (s)",
-        }
-
-        if gt_label_col is not None:
-            rename_map[gt_label_col] = "Label GT"
-        if cand_label_col is not None:
-            rename_map[cand_label_col] = "Label Cand"
-
-        df_ds = df_ds.rename(columns=rename_map)
-
-        if "Event Type" in df_ds.columns:
-            df_ds["Event Type"] = df_ds["Event Type"].replace(
+        if "Status" in df_ds.columns:
+            df_ds["Status"] = df_ds["Status"].replace(
                 {
-                    "hit": "TP",
-                    "miss": "FN",
+                    "hit": "Hit",
+                    "miss": "Miss",
                     "insertion": "Insertion",
                 }
             )
 
-        keep_cols = [
+        ordered_cols = [
             "Setting",
-            "Label GT",
-            "Label Cand",
-            "Event Type",
-            "EOS",
-            "Overlap (s)",
             "Audio ID",
             "GT Event ID",
+            "GT Label",
             "Cand Event ID",
+            "Cand Label",
+            "Status",
+            "EOS",
+            "Overlap (s)",
         ]
-        keep_cols = [c for c in keep_cols if c in df_ds.columns]
-        df_ds = df_ds[keep_cols].copy()
+        df_ds = df_ds[ordered_cols].copy()
 
-        # Sort primarily by event type (TP, FN, Insertion), then by EOS descending.
-        # Helper column stays internal and is dropped before output.
-        if "Event Type" in df_ds.columns:
-            event_order_map = {
-                "TP": 0,
-                "FN": 1,
-                "Insertion": 2,
+        status_order = {"Hit": 0, "Miss": 1, "Insertion": 2}
+        df_ds["_status_order"] = df_ds["Status"].map(status_order).fillna(99)
+
+        sort_cols = ["_status_order"]
+        ascending = [True]
+
+        if "Audio ID" in df_ds.columns:
+            sort_cols.append("Audio ID")
+            ascending.append(True)
+
+        if "GT Event ID" in df_ds.columns:
+            sort_cols.append("GT Event ID")
+            ascending.append(True)
+
+        if "Cand Event ID" in df_ds.columns:
+            sort_cols.append("Cand Event ID")
+            ascending.append(True)
+
+        df_ds = df_ds.sort_values(by=sort_cols, ascending=ascending).reset_index(drop=True)
+        df_ds = df_ds.drop(columns="_status_order")
+
+        results[setting] = df_ds
+
+    return results
+
+
+def build_rq3_global_tables(df_rq3_global: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """
+    Build thesis-ready RQ3 global tables split by mode.
+
+    Args:
+        df_rq3_global: Concatenated RQ3 global artifact across settings.
+
+    Returns:
+        Dict with keys:
+            "full_gt"
+            "part_gt"
+    """
+    _require_columns(
+        df_rq3_global,
+        [
+            "mode",
+            "dataset_name",
+            "n_gt_events_total",
+            "tp_total",
+            "fn_total",
+            "insertions_total",
+            "recall",
+            "dice_eos_recall",
+            "mean_dice_eos_tp",
+            "insertion_rate",
+            "deletion_rate",
+        ],
+        label="RQ3 global",
+    )
+
+    results: dict[str, pd.DataFrame] = {}
+
+    df_full = df_rq3_global[df_rq3_global["mode"] == "full_gt"].copy()
+    if not df_full.empty:
+        if "f1" not in df_full.columns:
+            raise KeyError("Expected column 'f1' in full_gt RQ3 global artifact.")
+
+        df_full.insert(
+            0,
+            "Setting",
+            df_full["dataset_name"].astype(str) + " | " + df_full["mode"].astype(str),
+        )
+
+        df_full = df_full.rename(
+            columns={
+                "n_gt_events_total": "n_gt_events_total",
+                "tp_total": "tp_total",
+                "fn_total": "fn_total",
+                "insertions_total": "insertions_total",
+                "f1": "F1",
+                "recall": "Recall",
+                "dice_eos_recall": "EOS Recall",
+                "mean_dice_eos_tp": "Mean EOS TP",
+                "insertion_rate": "Insertion Rate",
+                "deletion_rate": "Deletion Rate",
             }
-            df_ds["_event_order"] = df_ds["Event Type"].map(event_order_map).fillna(99)
+        )
 
-            sort_cols = ["_event_order"]
-            ascending = [True]
+        ordered_cols = [
+            "Setting",
+            "n_gt_events_total",
+            "tp_total",
+            "fn_total",
+            "insertions_total",
+            "F1",
+            "Recall",
+            "EOS Recall",
+            "Mean EOS TP",
+            "Insertion Rate",
+            "Deletion Rate",
+        ]
+        df_full = df_full[ordered_cols].copy()
+        results["full_gt"] = df_full.reset_index(drop=True)
 
-            if "EOS" in df_ds.columns:
-                sort_cols.append("EOS")
-                ascending.append(False)
+    df_part = df_rq3_global[df_rq3_global["mode"] == "part_gt"].copy()
+    if not df_part.empty:
+        df_part.insert(
+            0,
+            "Setting",
+            df_part["dataset_name"].astype(str) + " | " + df_part["mode"].astype(str),
+        )
 
-            if "Audio ID" in df_ds.columns:
-                sort_cols.append("Audio ID")
-                ascending.append(True)
+        df_part = df_part.rename(
+            columns={
+                "n_gt_events_total": "n_gt_events_total",
+                "tp_total": "tp_total",
+                "fn_total": "fn_total",
+                "insertions_total": "insertions_total",
+                "recall": "Recall",
+                "dice_eos_recall": "EOS Recall",
+                "mean_dice_eos_tp": "Mean EOS TP",
+                "insertion_rate": "Insertion Rate",
+                "deletion_rate": "Deletion Rate",
+            }
+        )
 
-            if "GT Event ID" in df_ds.columns:
-                sort_cols.append("GT Event ID")
-                ascending.append(True)
-
-            if "Cand Event ID" in df_ds.columns:
-                sort_cols.append("Cand Event ID")
-                ascending.append(True)
-
-            df_ds = df_ds.sort_values(by=sort_cols, ascending=ascending).reset_index(drop=True)
-            df_ds = df_ds.drop(columns="_event_order")
-
-        results[setting] = df_ds.reset_index(drop=True)
+        ordered_cols = [
+            "Setting",
+            "n_gt_events_total",
+            "tp_total",
+            "fn_total",
+            "insertions_total",
+            "Recall",
+            "EOS Recall",
+            "Mean EOS TP",
+            "Insertion Rate",
+            "Deletion Rate",
+        ]
+        df_part = df_part[ordered_cols].copy()
+        results["part_gt"] = df_part.reset_index(drop=True)
 
     return results

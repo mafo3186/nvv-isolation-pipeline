@@ -87,15 +87,10 @@ def load_global_best_k_set(evaluation_dir: str | Path, mode: str) -> pd.DataFram
 
 def select_top_n_part_gt_set(*, evaluation_dir: str | Path, top_n: int = 1) -> pd.DataFrame:
     """
-    Build a 'selected set' for part_gt from global_combo_ranking_part_gt.
-    Writes: <evaluation_dir>/part_gt/global_best_k_set_part_gt.csv
+    Legacy helper for deterministic top-n selection from part_gt ranking.
 
-    Args:
-        evaluation_dir: Workspace evaluation directory.
-        top_n: Number of top-ranked combos to include.
-
-    Returns:
-        set_df: Selected set as DataFrame.
+    This function is kept for compatibility only. The preferred part_gt logic
+    is build_part_gt_selected_set_from_top1_and_additional().
     """
     mode = "part_gt"
     evaluation_dir = Path(evaluation_dir)
@@ -131,6 +126,121 @@ def select_top_n_part_gt_set(*, evaluation_dir: str | Path, top_n: int = 1) -> p
     return set_df
 
 
+def _deduplicate_keep_order(items: List[str]) -> List[str]:
+    """
+    Deduplicate a list of strings while preserving first occurrence order.
+
+    Arguments:
+        items: Input string list.
+
+    Returns:
+        Deduplicated list in stable order.
+    """
+    seen: set[str] = set()
+    out: List[str] = []
+
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            out.append(item)
+
+    return out
+
+
+def build_part_gt_selected_set_from_top1_and_additional(
+    *,
+    evaluation_dir: str | Path,
+    additional_combo_keys: List[str],
+) -> pd.DataFrame:
+    """
+    Build the canonical part_gt selected set from:
+    1) the best single configuration on the target part_gt dataset
+    2) a manually defined additional configuration set from config
+
+    The resulting effective set is:
+        [top1_part_gt] + additional_combo_keys
+    followed by stable deduplication by combo_key.
+
+    The output is written to:
+        <evaluation_dir>/part_gt/global_best_k_set_part_gt.csv
+
+    Arguments:
+        evaluation_dir: Workspace evaluation directory.
+        additional_combo_keys: Additional combo_keys to combine with the
+            best single configuration from the part_gt ranking.
+
+    Returns:
+        Canonical selected set dataframe with columns:
+            mode, best_k, rank_in_set, selected_set_json,
+            combo_key, vad_mask, asr_audio_in
+    """
+    mode = "part_gt"
+    evaluation_dir = Path(evaluation_dir)
+
+    if not additional_combo_keys:
+        raise ValueError(
+            "additional_combo_keys must contain at least one combo_key for part_gt."
+        )
+
+    ranking = _read_combo_ranking_csv(evaluation_dir, mode=mode)
+    ranking = ranking[ranking["mode"].astype(str) == mode].copy()
+    if ranking.empty:
+        raise RuntimeError(f"global_combo_ranking_{mode}.csv contains no rows for mode={mode!r}")
+
+    top1_row = ranking.iloc[0]
+    top1_combo_key = str(top1_row["combo_key"])
+
+    effective_combo_keys = _deduplicate_keep_order(
+        [top1_combo_key] + [str(x) for x in additional_combo_keys]
+    )
+
+    ranking_lookup = (
+        ranking.loc[:, ["combo_key", "vad_mask", "asr_audio_in"]]
+        .drop_duplicates(subset=["combo_key"])
+        .copy()
+    )
+    ranking_lookup["combo_key"] = ranking_lookup["combo_key"].astype(str)
+
+    lookup_by_combo_key = {
+        str(row["combo_key"]): {
+            "vad_mask": row["vad_mask"],
+            "asr_audio_in": row["asr_audio_in"],
+        }
+        for _, row in ranking_lookup.iterrows()
+    }
+
+    missing = [ck for ck in effective_combo_keys if ck not in lookup_by_combo_key]
+    if missing:
+        raise KeyError(
+            "The following combo_keys from evaluation.part_gt_additional_selected_set "
+            f"were not found in global_combo_ranking_part_gt.csv: {missing}"
+        )
+
+    selected_set_json = json.dumps(effective_combo_keys)
+    rows: List[Dict[str, Any]] = []
+
+    for idx, combo_key in enumerate(effective_combo_keys, start=1):
+        meta = lookup_by_combo_key[combo_key]
+        rows.append(
+            {
+                "mode": mode,
+                "best_k": int(len(effective_combo_keys)),
+                "rank_in_set": int(idx),
+                "selected_set_json": selected_set_json,
+                "combo_key": combo_key,
+                "vad_mask": meta["vad_mask"],
+                "asr_audio_in": meta["asr_audio_in"],
+            }
+        )
+
+    set_df = pd.DataFrame(rows)
+
+    out_path = get_global_best_k_set_csv_path(evaluation_dir, mode)
+    write_csv_atomic(set_df, out_path)
+
+    return set_df
+
+
 def run_best_k_selection_for_dataset(
     *,
     dataset: object,
@@ -150,20 +260,22 @@ def run_best_k_selection_for_dataset(
     evaluate_onset: bool,
     evaluate_offset: bool,
     match_labels: bool,
+    part_gt_additional_selected_set: List[str],
 ) -> tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], pd.DataFrame]:
     """
-    Create the "selected set" per dataset.
+    Create the selected set per dataset.
 
     - full_gt: greedy forward best-k selection
-    - part_gt: deterministic top-n selection from ranking
+    - part_gt: best single configuration on the target dataset plus a
+      manually defined additional configuration set from config
 
     Args:
-        datasets: Dataset config objects.
+        dataset: Dataset config object.
         ws_by_dataset: Mapping dataset_name -> workspace_paths.
         evaluable_by_dataset: Mapping dataset_name -> list of evaluable ids.
         gt_dict: Ground truth dict.
         mode: "full_gt" or "part_gt".
-        top_n: Top-N combos considered in greedy stage / ranking stage.
+        top_n: Top-N combos considered in greedy stage for full_gt.
         k_max: Max k for greedy selection.
         delta_f1_stop: Early stopping threshold for greedy selection.
         stop_on_non_improvement: Stop if no improvement.
@@ -175,6 +287,8 @@ def run_best_k_selection_for_dataset(
         evaluate_onset: Evaluate onset matching.
         evaluate_offset: Evaluate offset matching.
         match_labels: Match labels/types or ignore labels.
+        part_gt_additional_selected_set: Additional combo_keys from config
+            used only for part_gt.
     """
     if mode == "full_gt":
         dataset_name = dataset.name
@@ -210,23 +324,26 @@ def run_best_k_selection_for_dataset(
 
         return trace_df, f1_vs_k_df, best_set_df
 
-    elif mode == "part_gt":
+    if mode == "part_gt":
         dataset_name = dataset.name
         ws = ws_by_dataset[dataset_name]
 
         print_header(
-            title=f"▶ Part-GT Top-N selection — dataset={dataset_name}", 
-            subtitle=f"Mode: {mode}"
+            title=f"▶ Part-GT selected set — dataset={dataset_name}",
+            subtitle="best single part_gt config + additional_selected_set_from_config",
         )
 
-        best_set_df = select_top_n_part_gt_set(evaluation_dir=ws.evaluation, top_n=1)
+        best_set_df = build_part_gt_selected_set_from_top1_and_additional(
+            evaluation_dir=ws.evaluation,
+            additional_combo_keys=part_gt_additional_selected_set,
+        )
 
         print("\nselected set:")
         print(best_set_df.to_string(index=False))
+
         return None, None, best_set_df
 
-    else:
-        raise ValueError(f"Unknown mode: {mode}")
+    raise ValueError(f"Unknown mode: {mode}")
 
 
 def greedy_forward_best_k_selection_full_gt(
@@ -249,7 +366,8 @@ def greedy_forward_best_k_selection_full_gt(
     match_labels: bool = False,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Greedy forward best-k selection optimizing macro mean F1 over audio_ids (full_gt only).
+    Greedy forward best-k selection optimizing macro mean F1 over audio_ids
+    (full_gt only).
 
     Inputs:
         - <evaluation_dir>/full_gt/global_combo_ranking_full_gt.csv
@@ -261,12 +379,13 @@ def greedy_forward_best_k_selection_full_gt(
         - <evaluation_dir>/full_gt/global_best_k_set_full_gt.csv
 
     STRICT:
-        - Missing candidate files raise FileNotFoundError (enforced by eval_union.evaluate_union_for_audio_id).
+        - Missing candidate files raise FileNotFoundError.
 
     Arguments:
         stop_on_non_improvement: If True, stop when best delta_f1 <= delta_f1_stop.
-            If False, continue until k_max (or pool exhausted) and select best_k by argmax F1 on the path.
-        verbose_missing: retained for interface compatibility; missing files raise (strict).
+            If False, continue until k_max (or pool exhausted) and select best_k
+            by argmax F1 on the path.
+        verbose_missing: Retained for interface compatibility; missing files raise.
     """
     mode = "full_gt"
 
@@ -275,7 +394,6 @@ def greedy_forward_best_k_selection_full_gt(
     mode_dir = get_eval_mode_dir(evaluation_dir, mode)
     mode_dir.mkdir(parents=True, exist_ok=True)
 
-    # kept for interface compatibility; strict behavior now raises on missing files.
     _ = bool(verbose_missing)
 
     if evaluable_ids is None:
@@ -329,6 +447,7 @@ def greedy_forward_best_k_selection_full_gt(
                     cache=cache,
                     dedup_eps_s=dedup_eps_s,
                     match_params=match_params,
+                    mode=mode,
                 )
             )
         df = pd.DataFrame(vals)
@@ -349,9 +468,9 @@ def greedy_forward_best_k_selection_full_gt(
 
     for ck in pool_combo_keys:
         metrics = macro_over_audio_ids([ck])
-        f1 = float(metrics["f1"])
-        if f1 > best_single_f1:
-            best_single_f1 = f1
+        f1_score = float(metrics["f1"])
+        if f1_score > best_single_f1:
+            best_single_f1 = f1_score
             best_ck = ck
             best_single_metrics = metrics
 

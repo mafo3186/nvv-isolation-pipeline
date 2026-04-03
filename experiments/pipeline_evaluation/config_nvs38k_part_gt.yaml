@@ -57,12 +57,14 @@ workspace:
 
 # --- Evaluation / Ground Truth / Preprocessing configuration: special case VOCALS concrete paths) ---
 evaluation:
+  gt_mode: part_gt
+  part_gt_additional_selected_set: ["std_vocals_norm_vad_original_asr_nlp_nvv", "std_vocals_norm_vad_std_asr_nlp_nvv"]
   gt_units:
   - name: nvs38k_EN
     raw_excel_rel_path: nonverbalspeech38k/subsets/EN_vocals_like.xlsx
     cleaned_excel_rel_path: nvs38k_EN_annotations_cleaned/EN_vocals_like_cleaned.xlsx
   gt_labels_export_rel: nvs38k_EN_labels_export
-  gt_mode: part_gt
+
   gt_id_column: video_id
   gt_merged_cleaned_excel_rel: null
 

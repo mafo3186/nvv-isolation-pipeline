@@ -10,7 +10,12 @@ from config.path_factory import (
     get_nvv_json_path_from_combo_key,
 )
 from evaluation.eval_event_matching import match_events_optimal
-from evaluation.eval_metrics import overlap_seconds, dice_event_overlap_score
+from evaluation.eval_metrics import (
+    overlap_seconds,
+    dice_event_overlap_score,
+    full_gt_metrics,
+    partial_gt_metrics,
+)
 
 
 def list_audio_ids_from_workspace(workspace_root: Path) -> List[str]:
@@ -80,6 +85,7 @@ def dedup_events_keep_first(
 
 def compute_metrics_from_pairs(
     *,
+    mode: str,
     gt_events: List[dict],
     cand_events: List[dict],
     gt_cand_pairs: List[Tuple[int, int]],
@@ -91,10 +97,11 @@ def compute_metrics_from_pairs(
     Notes:
         - Dice/overlap are computed over TP pairs only.
         - dice_eos_recall = sum(dice over matched GT rows) / n_gt (FN contributes 0).
-        - Precision/recall/f1 are computed in the "full GT" style:
-          if no candidates -> precision=0; if no GT -> recall=0.
+        - Count-based metrics are derived from eval_metrics.py and applied
+          mode-specifically.
 
     Args:
+        mode: Evaluation mode ("full_gt" or "part_gt").
         gt_events: GT events list (canonical keys: gt_start_s, gt_end_s).
         cand_events: Candidate events list (canonical keys: cand_start_s, cand_end_s).
         gt_cand_pairs: List of (gt_idx, cand_idx).
@@ -103,11 +110,11 @@ def compute_metrics_from_pairs(
     Returns:
         Dict of numeric metrics (floats).
     """
+    if mode not in ("full_gt", "part_gt"):
+        raise ValueError(f"mode must be 'full_gt' or 'part_gt', got: {mode}")
+
     tp = int(counts.tp)
-    fn = int(counts.fn)
-    fp = int(counts.fp)
     n_gt = int(counts.n_gt)
-    n_cand = int(counts.n_cand)
 
     if tp > 0:
         dices: List[float] = []
@@ -141,19 +148,35 @@ def compute_metrics_from_pairs(
     else:
         dice_eos_recall = 0.0
 
-    precision = (tp / float(n_cand)) if n_cand > 0 else 0.0
-    recall = (tp / float(n_gt)) if n_gt > 0 else 0.0
-    f1 = (2.0 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+    if mode == "full_gt":
+        classic = full_gt_metrics(counts)
+        precision_val = float(classic["precision"])
+        recall_val = float(classic["recall"])
+        f1_val = float(classic["f1"])
+        insertion_rate_val = float(classic["insertion_rate"])
+        deletion_rate_val = float(classic["deletion_rate"])
+        error_rate_val = float(classic["error_rate"])
+    else:
+        partial = partial_gt_metrics(counts)
+        precision_val = float("nan")
+        recall_val = float(partial["recall"])
+        f1_val = float("nan")
+        insertion_rate_val = float(partial["insertion_rate"])
+        deletion_rate_val = float(partial["deletion_rate"])
+        error_rate_val = float("nan")
 
     return {
-        "n_gt": float(n_gt),
-        "n_cand": float(n_cand),
-        "tp": float(tp),
-        "fn": float(fn),
-        "fp": float(fp),
-        "precision": float(precision),
-        "recall": float(recall),
-        "f1": float(f1),
+        "n_gt": float(counts.n_gt),
+        "n_cand": float(counts.n_cand),
+        "tp": float(counts.tp),
+        "fn": float(counts.fn),
+        "fp": float(counts.fp),
+        "precision": precision_val,
+        "recall": recall_val,
+        "f1": f1_val,
+        "insertion_rate": insertion_rate_val,
+        "deletion_rate": deletion_rate_val,
+        "error_rate": error_rate_val,
         "mean_dice_eos_tp": float(mean_dice_tp),
         "dice_eos_recall": float(dice_eos_recall),
         "mean_overlap_s_tp": float(mean_overlap_tp),
@@ -170,6 +193,7 @@ def evaluate_union_for_audio_id(
     cache: Optional[Dict[Tuple[str, str], List[dict]]],
     dedup_eps_s: Optional[float],
     match_params: Dict[str, Any],
+    mode: str,
 ) -> Dict[str, float]:
     """
     Evaluate union(combo_keys_in_order) for one audio_id.
@@ -188,6 +212,7 @@ def evaluate_union_for_audio_id(
         cache: Optional dict cache[(audio_id, combo_key)] -> events.
         dedup_eps_s: Dedup epsilon, optional.
         match_params: Forwarded to match_events_optimal.
+        mode: Evaluation mode ("full_gt" or "part_gt").
 
     Returns:
         Dict of metrics for this audio_id (floats).
@@ -239,6 +264,7 @@ def evaluate_union_for_audio_id(
     )
 
     return compute_metrics_from_pairs(
+        mode=mode,
         gt_events=gt_events,
         cand_events=union_events,
         gt_cand_pairs=gt_cand_pairs,

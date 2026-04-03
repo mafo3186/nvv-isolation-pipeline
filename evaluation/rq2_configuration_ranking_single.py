@@ -30,12 +30,15 @@ REQUIRED_COLUMNS = {
     "tp",
     "fn",
     "fp",
+    "recall",
+    "precision",
+    "f1",
     "mean_dice_eos_tp",
     "dice_eos_recall",
     "mean_overlap_s_tp",
-    "precision",
-    "recall",
-    "f1",
+    "insertion_rate",
+    "deletion_rate",
+    "error_rate",
 }
 
 
@@ -45,12 +48,15 @@ NUMERIC_COLUMNS = [
     "tp",
     "fn",
     "fp",
-    "mean_dice_eos_tp",
-    "dice_eos_recall",
-    "mean_overlap_s_tp",
     "precision",
     "recall",
     "f1",
+    "mean_dice_eos_tp",
+    "dice_eos_recall",
+    "mean_overlap_s_tp",
+    "insertion_rate",
+    "deletion_rate",
+    "error_rate",
 ]
 
 
@@ -141,12 +147,15 @@ def compute_single_configuration_ranking(
             macro_mean_tp=("tp", "mean"),
             macro_mean_fn=("fn", "mean"),
             macro_mean_fp=("fp", "mean"),
-            macro_mean_precision=("precision", "mean"),
             macro_mean_recall=("recall", "mean"),
+            macro_mean_precision=("precision", "mean"),
             macro_mean_f1=("f1", "mean"),
             macro_mean_mean_dice_eos_tp=("mean_dice_eos_tp", "mean"),
             macro_mean_dice_eos_recall=("dice_eos_recall", "mean"),
             macro_mean_mean_overlap_s_tp=("mean_overlap_s_tp", "mean"),
+            macro_mean_insertion_rate=("insertion_rate", "mean"),
+            macro_mean_deletion_rate=("deletion_rate", "mean"),
+            macro_mean_error_rate=("error_rate", "mean"),
         )
         .reset_index()
     )
@@ -155,11 +164,11 @@ def compute_single_configuration_ranking(
 
     # Sorting rules per mode
     if mode == "full_gt":
-        sort_cols = ["macro_mean_f1", "macro_mean_recall", "macro_mean_mean_dice_eos_tp"]
-        ascending = [False, False, False]
+        sort_cols = ["macro_mean_f1", "macro_mean_recall","macro_mean_dice_eos_recall", "macro_mean_mean_dice_eos_tp", "macro_mean_insertion_rate"]
+        ascending = [False, False, False, False, True]
     else:
-        sort_cols = ["macro_mean_recall", "macro_mean_dice_eos_recall", "macro_mean_fp"]
-        ascending = [False, False, True]
+        sort_cols = ["macro_mean_recall", "macro_mean_dice_eos_recall", "macro_mean_mean_dice_eos_tp", "macro_mean_insertion_rate"]
+        ascending = [False, False, False, True]
 
     agg = agg.sort_values(by=sort_cols, ascending=ascending, na_position="last").reset_index(drop=True)
 

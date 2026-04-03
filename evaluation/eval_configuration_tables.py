@@ -47,6 +47,9 @@ SUMMARY_COLUMNS = [
     "mean_dice_eos_tp",
     "dice_eos_recall",
     "mean_overlap_s_tp",
+    "insertion_rate",
+    "deletion_rate",
+    "error_rate",
     "precision",
     "recall",
     "f1",
@@ -246,11 +249,18 @@ def compute_summary_row_from_detailed(
         precision_val = classic["precision"]
         recall_val = classic["recall"]
         f1_val = classic["f1"]
+        insertion_rate_val = classic["insertion_rate"]
+        deletion_rate_val = classic["deletion_rate"]
+        error_rate_val = classic["error_rate"]
     else:
         partial = partial_gt_metrics(counts)
         precision_val = np.nan
         recall_val = partial["recall"]
         f1_val = np.nan
+        insertion_rate_val = partial["insertion_rate"]
+        deletion_rate_val = partial["deletion_rate"]
+        error_rate_val = np.nan  
+
 
     row = {
         "audio_id": audio_id,
@@ -267,6 +277,9 @@ def compute_summary_row_from_detailed(
         "mean_dice_eos_tp": mean_dice_tp,
         "dice_eos_recall": dice_eos_recall,
         "mean_overlap_s_tp": mean_overlap_tp,
+        "insertion_rate": insertion_rate_val,
+        "deletion_rate": deletion_rate_val,
+        "error_rate": error_rate_val,
         "precision": precision_val,
         "recall": recall_val,
         "f1": f1_val,

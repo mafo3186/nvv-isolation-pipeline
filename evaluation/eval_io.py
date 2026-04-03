@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import pandas as pd
+from typing import Mapping
 
 VALID_MODES = {"full_gt", "part_gt"}
 
@@ -104,3 +105,37 @@ def load_csv_or_fail(path: Path) -> pd.DataFrame:
     df = _auto_cast_int_like_columns(df)
 
     return df
+
+
+def write_multi_sheet_xlsx_atomic(
+    sheets: Mapping[str, pd.DataFrame | Path],
+    out_path: Path,
+) -> None:
+    """
+    Write an XLSX file atomically with an arbitrary number of sheets.
+
+    Each value in ``sheets`` may be either:
+    - a pandas DataFrame
+    - a Path to a CSV file, which will be loaded via load_csv_or_fail()
+
+    Args:
+        sheets: Mapping sheet_name -> DataFrame or CSV path.
+        out_path: Target XLSX path.
+    """
+    out_path = Path(out_path)
+    tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+
+    with pd.ExcelWriter(tmp_path, engine="openpyxl") as writer:
+        for sheet_name, value in sheets.items():
+            if isinstance(value, pd.DataFrame):
+                df = value
+            else:
+                df = load_csv_or_fail(Path(value))
+
+            df.to_excel(
+                writer,
+                sheet_name=str(sheet_name)[:31],
+                index=False,
+            )
+
+    _atomic_replace(tmp_path, out_path)

@@ -189,105 +189,7 @@ def _write_xlsx_append_sheets_atomic(
 
     wb.save(tmp_path)
     tmp_path.replace(out_path)
-
-
-def run_best_k_selection_for_datasets(
-    *,
-    datasets: List[object],
-    ws_by_dataset: Dict[str, object],
-    evaluable_by_dataset: Dict[str, List[str]],
-    gt_dict: Dict[str, List[dict]],
-    mode: str,
-    top_n: int,
-    k_max: int,
-    delta_f1_stop: float,
-    stop_on_non_improvement: bool,
-    dedup_eps_s: float,
-    preload: bool,
-    verbose_missing: bool,
-    t_collar: float,
-    percentage_of_length: float,
-    evaluate_onset: bool,
-    evaluate_offset: bool,
-    match_labels: bool,
-) -> None:
-    """
-    Create the "selected set" per dataset.
-
-    - full_gt: greedy forward best-k selection
-    - part_gt: deterministic top-n selection from ranking
-
-    Args:
-        datasets: Dataset config objects.
-        ws_by_dataset: Mapping dataset_name -> workspace_paths.
-        evaluable_by_dataset: Mapping dataset_name -> list of evaluable ids.
-        gt_dict: Ground truth dict.
-        mode: "full_gt" or "part_gt".
-        top_n: Top-N combos considered in greedy stage / ranking stage.
-        k_max: Max k for greedy selection.
-        delta_f1_stop: Early stopping threshold for greedy selection.
-        stop_on_non_improvement: Stop if no improvement.
-        dedup_eps_s: Dedup tolerance in seconds.
-        preload: Preload artifacts for speed.
-        verbose_missing: Print missing file details.
-        t_collar: Event collar (seconds).
-        percentage_of_length: Percentage collar factor.
-        evaluate_onset: Evaluate onset matching.
-        evaluate_offset: Evaluate offset matching.
-        match_labels: Match labels/types or ignore labels.
-    """
-    if mode == "full_gt":
-        for ds in datasets:
-            dataset_name = ds.name
-            ws = ws_by_dataset[dataset_name]
-            evaluable_ids = evaluable_by_dataset[dataset_name]
-
-            print("\n" + "=" * 70)
-            print(f"▶ Best-k Selection — dataset={dataset_name}")
-            print(f"Mode: {mode}")
-            print("=" * 70)
-
-            trace_df, f1_vs_k_df, best_set_df = greedy_forward_best_k_selection_full_gt(
-                workspace_root=ws.workspace,
-                evaluation_dir=ws.evaluation,
-                gt_dict=gt_dict,
-                evaluable_ids=evaluable_ids,
-                top_n=top_n,
-                k_max=k_max,
-                delta_f1_stop=delta_f1_stop,
-                stop_on_non_improvement=stop_on_non_improvement,
-                dedup_eps_s=dedup_eps_s,
-                preload=preload,
-                verbose_missing=verbose_missing,
-                t_collar=t_collar,
-                percentage_of_length=percentage_of_length,
-                evaluate_onset=evaluate_onset,
-                evaluate_offset=evaluate_offset,
-                match_labels=match_labels,
-            )
-
-            print("\nbest_set_df:")
-            print(best_set_df.to_string(index=False))
-
-    elif mode == "part_gt":
-        for ds in datasets:
-            dataset_name = ds.name
-            ws = ws_by_dataset[dataset_name]
-
-            _print_header(
-                title=f"▶ Part-GT Top-N selection — dataset={dataset_name}", 
-                subtitle=f"Mode: {mode}"
-            )
-
-            best_set_df = select_top_n_part_gt_set(evaluation_dir=ws.evaluation, top_n=1)
-
-            print("\nselected set:")
-            print(best_set_df.to_string(index=False))
-
-    else:
-        raise ValueError(f"Unknown mode: {mode}")
-
-
+    
 # --- Public API ---
 
 def run_best_k_union_evaluation(
@@ -338,12 +240,12 @@ Returns:
     # --- Read selected set in full_gt-mode and part_gt-mode) ---
     try:
         if mode == "full_gt":
-                best_k, selected_combo_keys, _ = _read_selected_set_from_f1_vs_k(
-                    evaluation_dir=evaluation_dir,
-                    mode=mode,
-                    k_override=k_override,
-                )
-        elif mode == "part_gt":
+            best_k, selected_combo_keys, _ = _read_selected_set_from_f1_vs_k(
+                evaluation_dir=evaluation_dir,
+                mode=mode,
+                k_override=k_override,
+            )
+        else:
             best_k, selected_combo_keys, _ = _read_selected_set_from_best_k_set_csv(
                 evaluation_dir=evaluation_dir,
                 mode=mode,
@@ -351,11 +253,11 @@ Returns:
     except FileNotFoundError as e:
         raise FileNotFoundError(
             f"Could not read selected set for mode '{mode}': {e}\n"
-            f"Make sure to run the best-k selection evaluation for this mode first, which writes the required files."
+            "Make sure to run the best k / selected-set construction for this mode first."
         )
     except Exception as e:
         raise RuntimeError(f"Error reading selected set for mode '{mode}': {e}")
-    
+
     match_params = {
         "match_labels": bool(match_labels),
         "evaluate_onset": bool(evaluate_onset),
@@ -377,6 +279,7 @@ Returns:
             cache=cache,
             dedup_eps_s=dedup_eps_s,
             match_params=match_params,
+            mode=mode,
         )
         per_rows.append(
             {
@@ -399,6 +302,7 @@ Returns:
 
     macro_cols = [
         "n_gt", "n_cand", "tp", "fn", "fp",
+        "insertion_rate", "deletion_rate", "error_rate",
         "precision", "recall", "f1",
         "mean_dice_eos_tp", "dice_eos_recall", "mean_overlap_s_tp",
     ]

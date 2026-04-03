@@ -35,6 +35,8 @@ _RUNS_INDEX_JSON = "runs_index.json"
 # --- Evaluation xlsx base name prefix ---
 _GLOBAL_EVALUATION_XLSX_BASE = "_global_evaluation"
 _PIPELINE_CAPABILITY_XLSX_BASE = "_pipeline_capability"
+_RESEARCH_QUESTIONS_XLSX_BASE = "_rq_summary"
+_RESEARCH_QUESTIONS_EXPERIMENT_XLSX_BASE = "_rq_summary_experiment"
 
 
 # --- Dataclasses ---
@@ -466,9 +468,14 @@ def get_rq2_audio_derivatives_csv_path(evaluation_dir: Path, mode: str) -> Path:
     return get_eval_mode_dir(evaluation_dir, mode) / f"rq2_config_audio_derivatives_{mode}.csv"
 
 
-def get_rq3_nvv_coverage_csv_path(evaluation_dir: Path, mode: str) -> Path:
-    """Return canonical RQ3 NVV coverage CSV path."""
-    return get_eval_mode_dir(evaluation_dir, mode) / f"rq3_nvv_coverage_{mode}.csv"
+def get_rq3_nvv_coverage_label_csv_path(evaluation_dir: Path, mode: str) -> Path:
+    """Return canonical RQ3 NVV label/event coverage CSV path."""
+    return get_eval_mode_dir(evaluation_dir, mode) / f"rq3_nvv_coverage_label_{mode}.csv"
+
+
+def get_rq3_nvv_coverage_global_csv_path(evaluation_dir: Path, mode: str) -> Path:
+    """Return canonical RQ3 NVV global coverage CSV path."""
+    return get_eval_mode_dir(evaluation_dir, mode) / f"rq3_nvv_coverage_global_{mode}.csv"
 
 
 # --- Research question output paths ---
@@ -498,9 +505,18 @@ def get_rq2_config_audio_derivatives_rq_csv_path(evaluation_dir: Path, mode: str
     return get_rq_output_dir(evaluation_dir, mode) / f"rq2_config_audio_derivatives_{mode}.csv"
 
 
-def get_rq3_nvv_coverage_rq_csv_path(evaluation_dir: Path, mode: str) -> Path:
-    """Return canonical RQ3 NVV coverage CSV path in research_questions/."""
-    return get_rq_output_dir(evaluation_dir, mode) / f"rq3_nvv_coverage_{mode}.csv"
+def get_rq3_nvv_coverage_label_rq_csv_path(evaluation_dir: Path, mode: str) -> Path:
+    """Return canonical RQ3 NVV label/event coverage CSV path in research_questions/."""
+    return get_rq_output_dir(evaluation_dir, mode) / f"rq3_nvv_coverage_label_{mode}.csv"
+
+
+def get_rq3_nvv_coverage_global_rq_csv_path(evaluation_dir: Path, mode: str) -> Path:
+    """Return canonical RQ3 NVV global coverage CSV path in research_questions/."""
+    return get_rq_output_dir(evaluation_dir, mode) / f"rq3_nvv_coverage_global_{mode}.csv"
+
+def get_rq_results_xlsx_path(evaluation_dir: Path, mode: str) -> Path:
+    """Return canonical research question results XLSX path in research_questions/."""
+    return get_rq_output_dir(evaluation_dir, mode) / f"{_RESEARCH_QUESTIONS_XLSX_BASE}_{mode}.xlsx"
 
 
 # --- Experiment evaluation paths ---
@@ -544,9 +560,18 @@ def get_experiment_rq2b_csv_path(experiment_root: Path, mode: str) -> Path:
     return get_experiment_rq_output_dir(experiment_root, mode) / f"rq2_config_audio_derivatives_experiment_{mode}.csv"
 
 
-def get_experiment_rq3_csv_path(experiment_root: Path, mode: str) -> Path:
-    """Return experiment-level RQ3 NVV coverage CSV path."""
-    return get_experiment_rq_output_dir(experiment_root, mode) / f"rq3_nvv_coverage_experiment_{mode}.csv"
+def get_experiment_rq3_label_csv_path(experiment_root: Path, mode: str) -> Path:
+    """Return experiment-level RQ3 NVV label coverage CSV path."""
+    return get_experiment_rq_output_dir(experiment_root, mode) / f"rq3_nvv_coverage_experiment_label_{mode}.csv"
+
+
+def get_experiment_rq3_global_csv_path(experiment_root: Path, mode: str) -> Path:
+    """Return experiment-level RQ3 NVV global coverage CSV path."""
+    return get_experiment_rq_output_dir(experiment_root, mode) / f"rq3_nvv_coverage_experiment_global_{mode}.csv"
+
+def get_experiment_rq_results_xlsx_path(experiment_root: Path, mode: str) -> Path:
+    """Return experiment-level research question results XLSX path."""
+    return get_experiment_rq_output_dir(experiment_root, mode) / f"{_RESEARCH_QUESTIONS_EXPERIMENT_XLSX_BASE}_{mode}.xlsx"
 
 
 # --- Clip export subdir naming ---

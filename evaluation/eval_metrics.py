@@ -33,8 +33,8 @@ def recall(tp: int, n_gt: int) -> float:
 
 
 def f1(p: float, r: float) -> float:
-    """F1 = 2PR/(P+R). Returns 0.0 if both p and r are 0."""
-    return 0.0 if (p == 0.0 and r == 0.0) else (2.0 * p * r) / (p + r)
+    """F1 = 2PR/(P+R). Returns 0.0 if P+R == 0."""
+    return 0.0 if (p + r) <= 0.0 else (2.0 * p * r) / (p + r)
 
 
 def insertion_rate(fp: int, n_gt: int) -> float:
@@ -107,6 +107,7 @@ def dice_event_overlap_score(a_start: float, a_end: float, b_start: float, b_end
 
     return round((2.0 * overlap) / (dur_a + dur_b), ndigits)
 
+# toDo: move mean_dice_eos_tp dice_eos_recall and mean_overlap_s_tp here from eval_union.py
 
 # Small collectors (optional, but convenient)
 
