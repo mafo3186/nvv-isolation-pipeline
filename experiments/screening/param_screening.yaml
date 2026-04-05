@@ -7,12 +7,12 @@
 # Run with:
 #   python run_experiments.py \
 #       --config ./config/config.yaml \
-#       --experiment ./experiments/screening_v1.yaml
+#       --experiment ./experiments/screening/parameter_screening.yaml
 
-experiment: screening_v1
+experiment: parameter_screening 
 
 grid:
   pipeline.4_vad.vad_threshold: [0.15, 0.20, 0.25]    # emilia: 0.20
   pipeline.4_vad.vad_min_silence_ms: [50, 75, 150]    # randomly chosen below 200ms (pauses normally 0 - 200 ms)
-  pipeline.7_nvv.max_duration: [null, 6.5]            # longest VOCALS segment is 6.5s, so we test if performance increases when we exclude longer segments
+  pipeline.7_nvv.max_duration: [null, 6.5, 13.0]      # longest VOCALS segment is 6.5s, so we test if performance increases when we exclude longer segments
   pipeline.7_nvv.dedup_overlap_ratio: [0.5, 0.7, 0.9] # randomly chosen around the default of 0.7

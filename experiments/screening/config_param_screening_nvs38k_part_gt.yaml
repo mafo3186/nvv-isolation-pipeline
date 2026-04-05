@@ -52,19 +52,20 @@ workspace:
   datasets:
     - name: "NVS-38K_EN_10_categories"
       input_rel: "experiment_parameter_screening/NVS-38K_EN_10_categories"
-      output_rel: "experiment_parameter_screening/NVS-38K_EN_10_categories"
+      output_rel: "NVS-38K_EN_10_categories"
 
 # --- Evaluation / Ground Truth / Preprocessing configuration ---
 evaluation:
-  gt_mode: "part_gt" # "full_gt" or "part_gt"; 
+  gt_mode: "part_gt" 
   part_gt_additional_selected_set: ["std_vocals_norm_vad_original_asr_nlp_nvv", "std_vocals_norm_vad_std_asr_nlp_nvv"]
 
   gt_units:
     - name: "NVS-38K_EN"
       raw_excel_rel_path: "ground_truth_excel_files/NVS-38K/EN.xlsx"
-      cleaned_excel_rel_path: "nvs38k_EN_annotations_cleaned/EN_cleaned.xlsx"
+      cleaned_excel_rel_path: "NVS-38K_EN_annotations_cleaned/EN_cleaned.xlsx"
 
-  gt_labels_export_rel: "nvs38k_EN_labels_export" 
+  gt_id_column: "video_id"
+  gt_labels_export_rel: "NVS-38K_EN_labels_export" 
   gt_merged_cleaned_excel_rel: null 
 
 

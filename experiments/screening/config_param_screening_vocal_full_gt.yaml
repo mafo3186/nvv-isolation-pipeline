@@ -52,7 +52,7 @@ workspace:
   datasets:
     - name: "VOCAL_10_categories"
       input_rel: "experiment_parameter_screening/VOCAL_10_categories"
-      output_rel: "experiment_parameter_screening/VOCAL_10_categories"
+      output_rel: "VOCAL_10_categories"
 
 
 # --- Evaluation / Ground Truth / Preprocessing configuration: special case VOCALS concrete paths) ---

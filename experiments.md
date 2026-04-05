@@ -10,7 +10,7 @@ experiments for the NVV pipeline.
 The experiment framework allows running the NVV pipeline with multiple
 parameter configurations automatically. Each run:
 
-* uses the base `config/config.yaml` as its starting point,
+* uses the base `experiments/<your_experiment>/config.yaml` as its starting point,
 * applies parameter overrides generated from the experiment `grid:`,
 * stores all outputs (pipeline artifacts + evaluation results) in a dedicated
   run directory,
@@ -32,21 +32,24 @@ definition YAML changes.
 data/processed/<processed_root>/
     <experiment_name>/
         <dataset_parent_rel>/ # optional
-            001_config.yaml
             001_<dataset_name>_<run_hash>/
                 per_audio/        ← pipeline step outputs per audio file
                 global/
                     evaluation/   ← evaluation results
                     clips/        ← extracted audio clips
-            002_config.yaml
             002_<dataset_name>_<run_hash>/
                 ...
+            configs/
+                001_config.yaml
+                002_config.yaml
+                ...
+            evaluation/
 ```
 
 For each run:
 
 * a resolved config file (`001_config.yaml`, `002_config.yaml`, …) is written
-  into the experiment directory,
+  into the `<experiment_name>/configs` directory,
 * one workspace directory is created **per dataset**.
 
 The `<run_hash>` is a 16-character deterministic SHA-256 digest computed from
@@ -61,22 +64,24 @@ enabling safe resume of interrupted runs.
 ### 1. Activate the environment
 
 ```bash
-conda activate pipeline_eval
+conda activate nvv_isolation_pipline
 cd <project_root>
 ```
 
 ### 2. Run a screening or grid search experiment defined as yaml
 
 ```bash
-python run_experiments.py --config ./experiments/screening/config_param_screening_nvs38k_full_gt.yaml --experiment ./experiments/screening/param_screening_v1.yaml
+# example parameter screening experiment
+python run_experiments.py 
+--config ./experiments/screening/config_param_screening_nvs38k_full_gt.yaml 
+--experiment ./experiments/screening/param_screening.yaml
 ```
 
-### 3. Run a grid search experiment
-
 ```bash
+# personalized experiment setup
 python run_experiments.py \
-    --config ./experiments/<your_experiment>/your_experiment_config.yaml \
-    --experiment ./experiments/grid_search_v1.yaml
+    --config ./experiments/<your_experiment>/<your_experiment>_config.yaml \
+    --experiment ./experiments/<your_experiment>/<your_grid>.yaml
 ```
 
 ---
@@ -89,17 +94,17 @@ values. The runner computes the cartesian product of all value lists and execute
 one pipeline run per combination.
 
 ```yaml
-experiment: screening_v1
+experiment: parameter_screening
 
 grid:
   pipeline.4_vad.vad_threshold: [0.15, 0.20, 0.25]
   pipeline.4_vad.vad_min_silence_ms: [50, 75, 150]
-  pipeline.7_nvv.max_duration: [null, 6.5]
+  pipeline.7_nvv.max_duration: [null, 6.5, 13.0]
   pipeline.7_nvv.dedup_overlap_ratio: [0.5, 0.7, 0.9]
 
 ```
 
-This example defines 3 × 3 × 2 × 3 = 54 runs.
+This example defines 3 × 3 × 3 × 3 = 81 runs.
 
 **Rules:**
 
@@ -127,7 +132,7 @@ The following parameters are recommended for screening and grid search.
 
 | Parameter             | Type           | Description                                          | Screening range |
 | --------------------- | -------------- | ---------------------------------------------------- | --------------- |
-| `max_duration`        | `float / null` | Maximum candidate duration in seconds (`null` = off) | `[null, 6.5]`   |
+| `max_duration`        | `float / null` | Maximum candidate duration in seconds (`null` = off) | `[null, 13.0]`   |
 | `dedup_overlap_ratio` | `float`        | IoU threshold for deduplication (0–1)                | `[0.5, 0.9]`    |
 
 All other parameters (e.g. `vad_min_speech_ms`, `vad_pad_ms`, ASR settings,
@@ -146,14 +151,16 @@ NLP model) are inherited unchanged from the base config.
 
 ## Creating a New Experiment
 
-1. Copy `experiments/screening_v1.yaml` to a new file, e.g.
-   `experiments/my_experiment.yaml`.
+1. Copy `experiments/screening/paramter_screening.yaml` to a new file, e.g.
+   `experiments/<my_experiment>/<my_grid>.yaml`.
 2. Set a unique `experiment:` name (used as the output directory name).
 3. Define the `grid:` with the desired parameter paths and value lists.
 4. Run it with:
 
 ```bash
-python run_experiments.py --config ./experiments/<experiment_name>config_<my_experiment>.yaml --experiment ./experiments/<experiment_name>/<my_experiment_grid>.yaml
+python run_experiments.py 
+--config ./experiments/<experiment_name>/config_<my_experiment>.yaml 
+--experiment ./experiments/<experiment_name>/<my_grid>.yaml
 ```
 
 The total number of runs equals the product of all value-list lengths. Keep
@@ -172,7 +179,10 @@ Allowed stages are:
 Example: run pipeline and workspace evaluation but skip experiment-level aggregation.
 
 ```bash
-python run_experiments.py --config ./experiments/<experiment_name>/config_<my_experiment>.yaml --experiment ./experiments/<experiment_name>my_experiment_grid.yaml --stages pipeline,workspace_evaluation
+python run_experiments.py 
+--config ./experiments/<experiment_name>/config_<my_experiment>.yaml 
+--experiment ./experiments/<experiment_name>/<my_grid>.yaml 
+--stages pipeline,workspace_evaluation
 ```
 ---
 
