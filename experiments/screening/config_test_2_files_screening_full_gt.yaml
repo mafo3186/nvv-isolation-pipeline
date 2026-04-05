@@ -41,7 +41,7 @@ project:
 
 paths:
   raw_root: "data/raw"
-  processed_root: "data/processed/screening_test"
+  processed_root: "data/processed/2_files"
 
 runtime:
   device: "cuda"
@@ -60,13 +60,12 @@ evaluation:
   gt_mode: "full_gt" # "full_gt" or "part_gt"; controls which evaluation metrics are used for evaluation
   part_gt_additional_selected_set: []
 
-
   gt_units:
     - name: "2_files"
-      raw_excel_rel_path: "nonverbalspeech38k/subsets/EN_vocals_like.xlsx"
-      cleaned_excel_rel_path: "2_files_nvs38k_EN_10_annotations_cleaned/EN_vocals_like_cleaned.xlsx"
+      raw_excel_rel_path: "ground_truth_excel_files/NVS-38K/EN.xlsx"
+      cleaned_excel_rel_path: "nvs38k_EN_annotations_cleaned/EN_cleaned.xlsx"
   
-  gt_labels_export_rel: "2_files_nvs38k_EN_10_labels_export" # where to export GT labels for evaluation (relative to processed root)
+  gt_labels_export_rel: "nvs38k_EN_labels_export" # where to export GT labels for evaluation (relative to processed root)
 
   gt_id_column: "video_id"
   

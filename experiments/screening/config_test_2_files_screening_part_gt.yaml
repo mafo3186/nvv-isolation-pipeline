@@ -41,7 +41,7 @@ project:
 
 paths:
   raw_root: "data/raw"
-  processed_root: "data/processed/screening_test"
+  processed_root: "data/processed/2_files"
 
 runtime:
   device: "cuda"
@@ -57,20 +57,16 @@ workspace:
 
 # --- Evaluation / Ground Truth / Preprocessing configuration ---
 evaluation:
-  gt_mode: "part_gt" # "full_gt" or "part_gt"; controls which evaluation metrics are used for evaluation
+  gt_mode: "part_gt" # "full_gt" or "part_gt"; 
   part_gt_additional_selected_set: ["std_vocals_norm_vad_original_asr_nlp_nvv", "std_vocals_norm_vad_std_asr_nlp_nvv"]
-
 
   gt_units:
     - name: "2_files"
-      raw_excel_rel_path: "nonverbalspeech38k/subsets/EN_vocals_like.xlsx"
-      cleaned_excel_rel_path: "2_files_nvs38k_EN_10_annotations_cleaned/EN_vocals_like_cleaned.xlsx"
-  
-  gt_labels_export_rel: "2_files_nvs38k_EN_10_labels_export" # where to export GT labels for evaluation (relative to processed root)
+      raw_excel_rel_path: "ground_truth_excel_files/NVS-38K/EN.xlsx"
+      cleaned_excel_rel_path: "nvs38k_EN_annotations_cleaned/EN_cleaned.xlsx"
 
-  gt_id_column: "video_id"
-  
-  gt_merged_cleaned_excel_rel: null # merged GT excel (relative to processed root)
+  gt_labels_export_rel: "nvs38k_EN_labels_export" 
+  gt_merged_cleaned_excel_rel: null 
 
 # --- Pipeline Step configuration ---
 pipeline:
