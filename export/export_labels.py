@@ -45,6 +45,7 @@ from utils.io import (
     write_json,
     audio_dir_metadata_path,
     is_audio_id_dir,
+    to_relative_path,
 )
 from utils.parsing import (
     parse_vad_and_asr_identifier_from_audio_id_filename,
@@ -97,6 +98,7 @@ def _update_metadata_with_label_if_present(
     generated_from: Path,
     vad_mask: Optional[str],
     asr_audio_in: Optional[str],
+    project_root: Path,
 ) -> None:
     """
     Optional metadata update:
@@ -110,6 +112,7 @@ def _update_metadata_with_label_if_present(
         generated_from: JSON artifact that produced the label
         vad_mask: token parsed from filename
         asr_audio_in: token parsed from filename (ASR/NVV); None for VAD
+        project_root: Configured project root for relative path storage.
     """
     meta_path = audio_dir_metadata_path(audio_id_dir)
     if not meta_path.exists():
@@ -119,8 +122,8 @@ def _update_metadata_with_label_if_present(
     meta.setdefault(KEY_LABELS, {}).setdefault(source, {})
 
     entry: Dict[str, Any] = {
-        "path": str(label_path),
-        "generated_from": str(generated_from),
+        "path": to_relative_path(label_path, project_root),
+        "generated_from": to_relative_path(generated_from, project_root),
     }
     if vad_mask is not None:
         entry["vad_mask"] = vad_mask
@@ -133,6 +136,7 @@ def _update_metadata_with_label_if_present(
 
 def export_labels(
     workspace: Path | str,
+    project_root: Path | str,
     *,
     export_vad: bool = True,
     export_asr: bool = True,
@@ -146,6 +150,7 @@ def export_labels(
 
     Args:
         workspace: workspace root containing per_audio/
+        project_root: Configured project root for relative path storage.
         export_vad: export VAD label files
         export_asr: export ASR label files
         export_nvv: export NVV label files
@@ -154,6 +159,7 @@ def export_labels(
         force: overwrite existing label files
     """
     ws = Path(workspace).resolve()
+    project_root = Path(project_root)
     per_audio = ws / KEY_PER_AUDIO
     if not per_audio.exists():
         print(f"❌ per_audio not found: {per_audio}")
@@ -221,6 +227,7 @@ def export_labels(
                             generated_from=vad_json,
                             vad_mask=vad_mask,
                             asr_audio_in=None,
+                            project_root=project_root,
                         )
                         total_written += 1
                     except Exception:
@@ -270,6 +277,7 @@ def export_labels(
                             generated_from=asr_json,
                             vad_mask=vad_mask,
                             asr_audio_in=asr_audio_in,
+                            project_root=project_root,
                         )
                         total_written += 1
                     except Exception:
@@ -329,6 +337,7 @@ def export_labels(
                             generated_from=nvv_json,
                             vad_mask=vad_mask,
                             asr_audio_in=asr_audio_in,
+                            project_root=project_root,
                         )
                         total_written += 1
                     except Exception:

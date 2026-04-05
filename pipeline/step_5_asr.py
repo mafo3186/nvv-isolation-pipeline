@@ -33,6 +33,7 @@ from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from transformers.models.whisper import generation_whisper
 
 from utils.io import ensure_dir, read_json_with_status, write_json, audio_dir_metadata_path
+from utils.io import to_relative_path, resolve_metadata_path
 from utils.parsing import create_combo_key
 from pipeline.pipeline_workspace_runner import setup_workspace_run
 from utils.detect_device import detect_device
@@ -224,6 +225,7 @@ def transcribe_single_audio_vad_masked(
     pipe,
     adjust_func,
     device: str,
+    project_root: Path,
     force: bool = False,
 ) -> None:
     """
@@ -237,6 +239,16 @@ def transcribe_single_audio_vad_masked(
       - broken VAD json => raise
       - torchaudio load / ASR errors => raise
       - existing output json but broken => raise
+
+    Args:
+        audio_id_dir: per_audio/<audio_id> directory.
+        asr_audio_in: Audio derivative for ASR input.
+        vad_mask: VAD mask to apply.
+        pipe: Initialized HF pipeline.
+        adjust_func: Post-processing function.
+        device: Device string.
+        project_root: Configured project root for relative path storage and resolution.
+        force: Overwrite existing outputs.
     """
     meta_path = audio_dir_metadata_path(audio_id_dir)
     meta_data, meta_status = read_json_with_status(meta_path)
@@ -262,7 +274,7 @@ def transcribe_single_audio_vad_masked(
     def _write_asr_metadata(status: str, *, path: Optional[Path], extra: Optional[Dict[str, Any]] = None) -> None:
         meta.setdefault(KEY_ANNOTATIONS, {}).setdefault(KEY_ASR, {})
         entry: Dict[str, Any] = {
-            "path": str(path) if path is not None else None,
+            "path": to_relative_path(path, project_root) if path is not None else None,
             "vad_mask": vad_mask,
             "asr_audio_in": asr_audio_in,
             "device": device,
@@ -276,7 +288,7 @@ def transcribe_single_audio_vad_masked(
     # --- Resolve input wav from metadata (Single Truth) ---
     audio_info = meta.get(KEY_AUDIO_FILES, {}).get(asr_audio_in, {}) or {}
     wav_path_str = audio_info.get(KEY_FIELD_PATH, "")
-    wav_path = Path(wav_path_str) if wav_path_str else None
+    wav_path = resolve_metadata_path(wav_path_str, project_root) if wav_path_str else None
 
     if wav_path is None or not wav_path.exists():
         _write_asr_metadata("missing", path=None, extra={"error_msg": f"Missing input audio: {wav_path_str}"})
@@ -287,7 +299,7 @@ def transcribe_single_audio_vad_masked(
     if vad_mask != VAD_NO:
         vad_entry = (meta.get(KEY_ANNOTATIONS, {}).get(KEY_VAD, {}) or {}).get(vad_mask)
         vad_path_str = (vad_entry or {}).get(KEY_FIELD_PATH, "")
-        vad_path = Path(vad_path_str) if vad_path_str else None
+        vad_path = resolve_metadata_path(vad_path_str, project_root) if vad_path_str else None
 
         if vad_path is None or not vad_path.exists():
             _write_asr_metadata("missing", path=None, extra={"error_msg": f"Missing VAD annotation: {vad_path_str}"})
@@ -377,6 +389,7 @@ def run_step_5_asr(
     asr_audios_in: List[str],
     asr_chunk_length_s: int,
     asr_batch_size: int,
+    project_root: Path | str,
     device: str = "auto",
     force: bool = False,
 ) -> None:
@@ -390,6 +403,7 @@ def run_step_5_asr(
         asr_audios_in: list of ASR input audio derivatives (must be in AUDIO_DERIVATIVES)
         asr_chunk_length_s: CrisperWhisper chunk length in seconds
         asr_batch_size: Inference batch size
+        project_root: Configured project root for relative path storage and resolution.
         device: torch device string
         force: overwrite existing outputs
 
@@ -397,6 +411,8 @@ def run_step_5_asr(
       - missing inputs => metadata status="missing", continue
       - broken inputs => raise
     """
+    project_root = Path(project_root)
+
     setup = setup_workspace_run(
         workspace=workspace,
         input_dir=None,
@@ -443,6 +459,7 @@ def run_step_5_asr(
                     pipe=pipe,
                     adjust_func=adjust_func,
                     device=used_device,
+                    project_root=project_root,
                     force=setup["force"],
                 )
 
@@ -475,6 +492,7 @@ if __name__ == "__main__":
     parser.add_argument("--asr_audios_in", type=str, nargs="+", required=True, help="List of asr_audio_in to run (must be in AUDIO_DERIVATIVES).")
     parser.add_argument("--asr_chunk_length_s", type=int, default=30, help="CrisperWhisper chunk length in seconds.")
     parser.add_argument("--asr_batch_size", type=int, default=1, help="Inference batch size.")
+    parser.add_argument("--project-root", type=str, required=True, dest="project_root", help="Project root for relative path storage.")
     parser.add_argument("--device", type=str, default="auto", help="Device to use for ASR (e.g., 'auto', 'cuda', 'cpu').")
     parser.add_argument("--force", action="store_true", help="Force re-run even if outputs exist.")
     args = parser.parse_args()
@@ -485,6 +503,7 @@ if __name__ == "__main__":
         asr_audios_in=args.asr_audios_in,
         asr_chunk_length_s=args.asr_chunk_length_s,
         asr_batch_size=args.asr_batch_size,
+        project_root=args.project_root,
         device=args.device,
         force=args.force,
     )   

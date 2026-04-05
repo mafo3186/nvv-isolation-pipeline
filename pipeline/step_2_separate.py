@@ -15,6 +15,7 @@ from pipeline.pipeline_workspace_runner import setup_workspace_run
 from metadata.metadata import audio_dir_metadata_path, set_metadata_audio, mark_step
 from utils.detect_device import detect_device
 from pipeline.separate_fast import Predictor
+from utils.io import to_relative_path, resolve_metadata_path
 from config.constants import (
     AUDIO_STD,
     KEY_STEP_2,
@@ -78,6 +79,7 @@ def load_step_2_predictor(
 def source_separate_single_audio(
     audio_id_dir: Path,
     predictor: Predictor,
+    project_root: Path,
     device: str = "auto",
     force: bool = False
 ):
@@ -87,6 +89,7 @@ def source_separate_single_audio(
     Args:
       - audio_id_dir: Input: standardized file from Step 1 (audios/std)
       - predictor: Pre-loaded Predictor instance
+      - project_root: Configured project root for relative path storage.
       - device: Only for logging (already resolved if using load_step_2_predictor)
       - force: Whether to overwrite existing outputs
 
@@ -110,7 +113,7 @@ def source_separate_single_audio(
 
     # --- Resolve input file ---
     in_path_str = meta.get(KEY_AUDIO_FILES, {}).get(AUDIO_STD, {}).get(KEY_FIELD_PATH, "")
-    in_path = Path(in_path_str) if in_path_str else None
+    in_path = resolve_metadata_path(in_path_str, project_root) if in_path_str else None
 
     if in_path is None or not in_path.exists():
         raise FileNotFoundError(
@@ -150,8 +153,8 @@ def source_separate_single_audio(
     sf.write(out_bg, background, STEP2_TARGET_SR, subtype=STEP2_WAV_SUBTYPE)
 
     # --- Update metadata ---
-    set_metadata_audio(meta, AUDIO_STD_VOCALS, out_voc, STEP2_TARGET_SR, 2)
-    set_metadata_audio(meta, AUDIO_STD_BACKGROUND, out_bg, STEP2_TARGET_SR, 2)
+    set_metadata_audio(meta, AUDIO_STD_VOCALS, out_voc, STEP2_TARGET_SR, 2, project_root)
+    set_metadata_audio(meta, AUDIO_STD_BACKGROUND, out_bg, STEP2_TARGET_SR, 2, project_root)
 
     # --- Log Step ---
     mark_step(
@@ -163,7 +166,7 @@ def source_separate_single_audio(
             KEY_FIELD_SR: STEP2_TARGET_SR,
             KEY_FIELD_CHANNELS: 2,
             "device": used_device,
-            "input": str(in_path),
+            "input": to_relative_path(in_path, project_root),
             # optional traceability for tuning (can be removed later if too noisy)
             "uvr_params": {
                 "dim_f": STEP2_MODEL_DIM_F,
@@ -187,6 +190,7 @@ def source_separate_single_audio(
 def run_step_2_separate(
     workspace: Path | str,
     model_path: Path | str,
+    project_root: Path | str,
     device: str = "auto",
     force: bool = False,
 ) -> None:
@@ -194,7 +198,16 @@ def run_step_2_separate(
     Batch runner for Step 2.
     Runs only Step 2 over all per_audio/<audio_id>/ folders that have metadata.
     Resolves device once per workspace run.
+
+    Args:
+        workspace: processed workspace root
+        model_path: Path to the ONNX model.
+        project_root: Configured project root for relative path storage and resolution.
+        device: Device to use.
+        force: Overwrite existing outputs.
     """
+    project_root = Path(project_root)
+
     setup = setup_workspace_run(
         workspace=workspace,
         device=device,
@@ -220,6 +233,7 @@ def run_step_2_separate(
         source_separate_single_audio(
             audio_id_dir=audio_id_dir,
             predictor=predictor,
+            project_root=project_root,
             device=used_device, 
             force=setup["force"],
         )
@@ -233,6 +247,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Step 2 (source separation) over a workspace.")
     parser.add_argument("--workspace", required=True, help="Output workspace root directory")
     parser.add_argument("--model", required=True, help="Path to UVR-MDX-Net model (.onnx)")
+    parser.add_argument("--project-root", required=True, dest="project_root", help="Project root for relative path storage")
     parser.add_argument("--device", default="auto", help="Device to use: auto | cuda | cpu")
     parser.add_argument("--force", action="store_true", help="Overwrite existing outputs")
     args = parser.parse_args()
@@ -240,6 +255,7 @@ if __name__ == "__main__":
     run_step_2_separate(
         workspace=args.workspace,
         model_path=args.model,
+        project_root=args.project_root,
         device=args.device,
         force=args.force,
     )

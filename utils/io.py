@@ -190,3 +190,38 @@ def load_yaml(path: Path) -> dict[str, Any]:
 
     with path.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def to_relative_path(path: Path, project_root: Path) -> str:
+    """
+    Convert absolute path to project-root-relative string for metadata storage.
+
+    Uses POSIX-style separators (forward slashes) for cross-platform compatibility
+    in JSON metadata files.
+
+    Args:
+        path: Absolute path to convert.
+        project_root: Configured project root (single source of truth).
+
+    Returns:
+        POSIX relative path string (e.g. "data/processed/...").
+    """
+    return Path(path).relative_to(project_root).as_posix()
+
+
+def resolve_metadata_path(rel_path_str: str, project_root: Path) -> Path:
+    """
+    Resolve a stored metadata path string to an absolute Path.
+
+    Handles both new relative paths and old absolute paths (backward compat):
+    - relative: project_root / rel_path_str -> absolute path
+    - absolute (old metadata): project_root / "/abs/path" -> "/abs/path" (Path semantics)
+
+    Args:
+        rel_path_str: Path string as stored in metadata (relative or legacy absolute).
+        project_root: Configured project root (single source of truth).
+
+    Returns:
+        Absolute Path.
+    """
+    return project_root / rel_path_str

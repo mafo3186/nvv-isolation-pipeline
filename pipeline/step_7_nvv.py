@@ -49,6 +49,8 @@ from utils.io import (
     read_json_with_status,
     write_json,
     audio_dir_metadata_path,
+    to_relative_path,
+    resolve_metadata_path,
 )
 from utils.parsing import (
     parse_vad_and_asr_identifier_from_audio_id_filename,
@@ -244,13 +246,14 @@ def _add_candidate_ids(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 # IO + validation
 
-def _load_vad_segments_required(meta: Dict[str, Any], vad_mask: str) -> List[Dict[str, float]]:
+def _load_vad_segments_required(meta: Dict[str, Any], vad_mask: str, project_root: Path) -> List[Dict[str, float]]:
     """
     Resolve VAD path via metadata (mapping only), then load/validate VAD JSON.
 
     Args:
         meta: per-audio metadata.json content
         vad_mask: one of VAD_MASKS (must not be "no" here)
+        project_root: Configured project root for path resolution.
 
     Returns:
         List of {"start": float, "end": float} (may be empty)
@@ -263,7 +266,7 @@ def _load_vad_segments_required(meta: Dict[str, Any], vad_mask: str) -> List[Dic
     if not vad_path_str:
         raise FileNotFoundError(f"Missing VAD metadata entry for vad_mask='{vad_mask}' (no path).")
 
-    vad_path = Path(vad_path_str)
+    vad_path = resolve_metadata_path(vad_path_str, project_root)
     data, st = read_json_with_status(vad_path)
     if st == "missing":
         raise FileNotFoundError(f"Missing VAD file for vad_mask='{vad_mask}': {vad_path}")
@@ -366,6 +369,7 @@ def process_single_nvv(
     vad_gate_padding: float,
     dedup_overlap_ratio: float,
     dedup_time_tol_s: float,
+    project_root: Path,
     force: bool,
 ) -> None:
     """
@@ -381,6 +385,7 @@ def process_single_nvv(
         vad_gate_padding: optional padding when clipping kept segments to VAD
         dedup_overlap_ratio: minimum overlap ratio to merge near-identical duplicate chunks
         dedup_time_tol_s: time tolerance for near-identical start/end deduplication
+        project_root: Configured project root for relative path storage and resolution.
         force: overwrite existing NVV artifacts
     """
     vad_mask, asr_audio_in = parse_vad_and_asr_identifier_from_audio_id_filename(audio_id, nlp_path.stem)
@@ -416,7 +421,7 @@ def process_single_nvv(
 
         meta.setdefault(KEY_ANNOTATIONS, {}).setdefault(KEY_NVV, {})
         meta[KEY_ANNOTATIONS][KEY_NVV][combo_key] = {
-            KEY_FIELD_PATH: str(out_path),
+            KEY_FIELD_PATH: to_relative_path(out_path, project_root),
             "vad_mask": vad_mask,
             "asr_audio_in": asr_audio_in,
             "exclude_categories": list(exclude_categories),
@@ -437,7 +442,7 @@ def process_single_nvv(
         write_json(out_path, {KEY_NVV: []})
         meta.setdefault(KEY_ANNOTATIONS, {}).setdefault(KEY_NVV, {})
         meta[KEY_ANNOTATIONS][KEY_NVV][combo_key] = {
-            KEY_FIELD_PATH: str(out_path),
+            KEY_FIELD_PATH: to_relative_path(out_path, project_root),
             "vad_mask": vad_mask,
             "asr_audio_in": asr_audio_in,
             "exclude_categories": list(exclude_categories),
@@ -466,7 +471,7 @@ def process_single_nvv(
 
         meta.setdefault(KEY_ANNOTATIONS, {}).setdefault(KEY_NVV, {})
         meta[KEY_ANNOTATIONS][KEY_NVV][combo_key] = {
-            KEY_FIELD_PATH: str(out_path),
+            KEY_FIELD_PATH: to_relative_path(out_path, project_root),
             "vad_mask": vad_mask,
             "asr_audio_in": asr_audio_in,
             "exclude_categories": list(exclude_categories),
@@ -480,14 +485,14 @@ def process_single_nvv(
         return
 
     # VAD-required mode (strict)
-    vad_segments = _load_vad_segments_required(meta, vad_mask=vad_mask)
+    vad_segments = _load_vad_segments_required(meta, vad_mask=vad_mask, project_root=project_root)
 
     # Valid empty VAD => valid empty NVV (VAD gates candidates)
     if len(vad_segments) == 0:
         write_json(out_path, {KEY_NVV: []})
         meta.setdefault(KEY_ANNOTATIONS, {}).setdefault(KEY_NVV, {})
         meta[KEY_ANNOTATIONS][KEY_NVV][combo_key] = {
-            KEY_FIELD_PATH: str(out_path),
+            KEY_FIELD_PATH: to_relative_path(out_path, project_root),
             "vad_mask": vad_mask,
             "asr_audio_in": asr_audio_in,
             "exclude_categories": list(exclude_categories),
@@ -518,7 +523,7 @@ def process_single_nvv(
 
     meta.setdefault(KEY_ANNOTATIONS, {}).setdefault(KEY_NVV, {})
     meta[KEY_ANNOTATIONS][KEY_NVV][combo_key] = {
-        KEY_FIELD_PATH: str(out_path),
+        KEY_FIELD_PATH: to_relative_path(out_path, project_root),
         "vad_mask": vad_mask,
         "asr_audio_in": asr_audio_in,
         "exclude_categories": list(exclude_categories),
@@ -546,6 +551,7 @@ def run_step_7_nvv(
     vad_gate_padding: float,
     dedup_overlap_ratio: float,
     dedup_time_tol_s: float,
+    project_root: Path | str,
     force: bool = False,
 ) -> None:
     """
@@ -561,8 +567,11 @@ def run_step_7_nvv(
         vad_gate_padding: optional padding when clipping kept segments to VAD
         dedup_overlap_ratio: minimum overlap ratio to merge near-identical duplicate chunks
         dedup_time_tol_s: time tolerance for near-identical start/end deduplication
+        project_root: Configured project root for relative path storage and resolution.
         force: overwrite existing NVV outputs
     """
+    project_root = Path(project_root)
+
     setup = setup_workspace_run(
         workspace=workspace,
         input_dir=None,
@@ -626,6 +635,7 @@ def run_step_7_nvv(
                 vad_gate_padding=vad_gate_padding,
                 dedup_overlap_ratio=dedup_overlap_ratio,
                 dedup_time_tol_s=dedup_time_tol_s,
+                project_root=project_root,
                 force=force,
             )
 
@@ -667,6 +677,7 @@ if __name__ == "__main__":
     parser.add_argument("--vad_gate_padding", type=float, default=0.0, help="Optional padding in seconds when clipping to VAD (default: 0.0)")
     parser.add_argument("--dedup_overlap_ratio", type=float, default=0.7, help="Minimum overlap ratio to merge near-identical duplicate chunks (default: 0.7)")
     parser.add_argument("--dedup_time_tol_s", type=float, default=0.05, help="Time tolerance for near-identical start/end deduplication (default: 0.05)")
+    parser.add_argument("--project-root", required=True, dest="project_root", help="Project root for relative path storage.")
     parser.add_argument("--force", action="store_true", help="Overwrite existing NVV outputs (default: False)")
     args = parser.parse_args()  
     run_step_7_nvv(
@@ -679,5 +690,6 @@ if __name__ == "__main__":
         vad_gate_padding=args.vad_gate_padding,
         dedup_overlap_ratio=args.dedup_overlap_ratio,
         dedup_time_tol_s=args.dedup_time_tol_s,
+        project_root=args.project_root,
         force=args.force,
     )

@@ -28,6 +28,7 @@ from config.params import STEP2_TARGET_SR
 def standardize_single_audio(
     input_file: Path,
     audio_id_dir: Path,
+    project_root: Path,
     device: str = "auto",
     force: bool = False,
 ):
@@ -36,6 +37,13 @@ def standardize_single_audio(
       - Stereo, SEPARATION_SAMPLING_RATE Hz
       - Peak normalization [-1, 1]
       - No RMS leveling (peak normalization only)
+
+    Args:
+        input_file: Raw input audio file.
+        audio_id_dir: per_audio/<audio_id> directory.
+        project_root: Configured project root for relative path storage.
+        device: Device flag (for traceability).
+        force: Overwrite existing outputs.
     """
 
     # --- Setup ---
@@ -64,7 +72,7 @@ def standardize_single_audio(
     # --- Store original file info in metadata ---
     orig_sr = int(sr_in)
     meta[KEY_AUDIO_ID] = audio_id
-    set_metadata_audio(meta, KEY_ORIGINAL, input_file.resolve(), orig_sr, orig_channels)
+    set_metadata_audio(meta, KEY_ORIGINAL, input_file.resolve(), orig_sr, orig_channels, project_root)
 
     # --- Resample to target sampling rate ---
     if sr_in != STEP2_TARGET_SR:
@@ -89,7 +97,7 @@ def standardize_single_audio(
     sf.write(out_path, y.T, sr_out, subtype="PCM_16")
 
     # --- Update metadata ---
-    set_metadata_audio(meta, AUDIO_STD, out_path, sr_out, 2)
+    set_metadata_audio(meta, AUDIO_STD, out_path, sr_out, 2, project_root)
     mark_step(
         meta,
         KEY_STEP_1,
@@ -113,6 +121,7 @@ def standardize_single_audio(
 def run_step_1_std(
     input_dir: Path | str,
     workspace: Path | str,
+    project_root: Path | str,
     device: str = "auto",
     force: bool = False,
 ) -> None:
@@ -124,10 +133,13 @@ def run_step_1_std(
     Args:
         input_dir (Path|str): Directory containing raw audio files.
         workspace (Path|str): Root directory for storing per_audio data.
+        project_root (Path|str): Configured project root for relative path storage.
         device (str, optional): Device flag forwarded to step_1_standardize ("auto", "cuda", "cpu").
         force (bool, optional): Overwrite existing standardization results if True.
     """
     from pipeline.pipeline_workspace_runner import setup_workspace_run
+
+    project_root = Path(project_root)
 
     setup = setup_workspace_run(
         workspace=workspace,
@@ -146,7 +158,7 @@ def run_step_1_std(
         audio_id_dir = per_audio_dir / audio_id
         ensure_dir(audio_id_dir)
 
-        standardize_single_audio(file, audio_id_dir, device=used_device, force=force)
+        standardize_single_audio(file, audio_id_dir, project_root, device=used_device, force=force)
 
     print("✅ Step 1 Normalization completed.") 
 
@@ -159,6 +171,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--input", required=True, help="Input directory with raw audio files")
     parser.add_argument("--workspace", required=True, help="Output workspace root directory")
+    parser.add_argument("--project-root", required=True, dest="project_root", help="Project root for relative path storage")
     parser.add_argument(
         "--device",
         default="auto",
@@ -170,4 +183,4 @@ if __name__ == "__main__":
         help="Overwrite existing standardization outputs",
     )
     args = parser.parse_args()
-    run_step_1_std(args.input, args.workspace, device=args.device, force=args.force)
+    run_step_1_std(args.input, args.workspace, args.project_root, device=args.device, force=args.force)

@@ -2,14 +2,14 @@ from pathlib import Path
 import time
 from typing import Any, Dict, Optional
 from config.constants import KEY_ASR, KEY_VAD, KEY_METADATA, KEY_AUDIO_FILES, KEY_FIELD_PATH, KEY_FIELD_SR, KEY_FIELD_CHANNELS, KEY_STEP_LOG, KEY_ANNOTATIONS, KEY_LABELS
-from utils.io import read_json, read_json_with_status, write_json, audio_dir_metadata_path
+from utils.io import read_json, read_json_with_status, write_json, audio_dir_metadata_path, to_relative_path
 
 
-def set_metadata_audio(meta: dict, key: str, path: Path, sr: int, channels: int):
-    """Convenience helper to update audio metadata."""
+def set_metadata_audio(meta: dict, key: str, path: Path, sr: int, channels: int, project_root: Path):
+    """Convenience helper to update audio metadata with a project-root-relative path."""
     meta.setdefault(KEY_AUDIO_FILES, {})
     meta[KEY_AUDIO_FILES][key] = {
-        "path": str(path),
+        "path": to_relative_path(path, project_root),
         "sr": int(sr),
         "channels": int(channels)
     }
@@ -41,9 +41,9 @@ def update_metadata(metadata_path: Path, annotation_key: str, annotation_path: s
     write_json(metadata_path, meta)
     print(f"📄 Metadata updated: {metadata_path.name} → {annotation_key}")
 
-                  
+                   
 #urgent toDo: renaming required for updated single source of truth of audio_derivatives and vad_masks instead of sources and source_types!
-def update_metadata_with_label(work_dir: Path, label_path: Path, source: str, audio_derivative: str, generated_from: Path):
+def update_metadata_with_label(work_dir: Path, label_path: Path, source: str, audio_derivative: str, generated_from: Path, project_root: Path):
     """
     Update metadata.json with info about a generated label file.
 
@@ -51,8 +51,9 @@ def update_metadata_with_label(work_dir: Path, label_path: Path, source: str, au
         work_dir (Path): Directory containing metadata.json
         label_path (Path): Path to generated label file
         source (str): e.g. 'vad', 'asr', etc.
-        source_type (str): e.g. 'vocals_norm', 'original'
+        audio_derivative (str): e.g. 'vocals_norm', 'original'
         generated_from (Path): JSON file that the label was created from
+        project_root (Path): Configured project root for relative path storage
     """
     from utils.io import read_json, write_json  
     meta_path = audio_dir_metadata_path(work_dir)
@@ -64,7 +65,7 @@ def update_metadata_with_label(work_dir: Path, label_path: Path, source: str, au
     meta[KEY_LABELS].setdefault(source, {})  # ✅ create nested group, e.g. "labels"["vad"]
 
     label_entry = {
-        "path": str(label_path.resolve()),
+        "path": to_relative_path(label_path.resolve(), project_root),
         "source": source,
         "source_type": audio_derivative,
         "format": "audacity",
