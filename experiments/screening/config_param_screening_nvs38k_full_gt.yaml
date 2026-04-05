@@ -54,8 +54,8 @@ workspace:
       output_rel: "NVS-38K_EN_10_categories"
       
 evaluation:
-  gt_mode: "part_gt" 
-  part_gt_additional_selected_set: ["std_vocals_norm_vad_original_asr_nlp_nvv", "std_vocals_norm_vad_std_asr_nlp_nvv"]
+  gt_mode: "full_gt" 
+  part_gt_additional_selected_set: []
 
   gt_units:
     - name: "NVS-38K_EN"
