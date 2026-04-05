@@ -34,6 +34,7 @@ import soundfile as sf
 from utils.io import ensure_dir, read_json, write_json
 from pipeline.pipeline_workspace_runner import setup_workspace_run
 from metadata.metadata import audio_dir_metadata_path, set_metadata_audio, mark_step
+from utils.io import resolve_metadata_path
 from config.constants import (
     KEY_STEP_3,
     EXT_WAV,
@@ -85,6 +86,7 @@ def loudness_normalize(
 
 def normalize_single_audio(
     audio_id_dir: Path,
+    project_root: Path,
     device: str = "auto",   # accepted + logged for symmetry/traceability
     force: bool = False,
 ):
@@ -93,6 +95,12 @@ def normalize_single_audio(
       - Mono, STEP3_ANALYSIS_SAMPLING_RATE Hz
       - RMS normalization to TARGET_DBFS ± LIMIT_DB
       - Agglutinates suffix chain (e.g. "_std_vocals" → "_std_vocals_norm.wav")
+
+    Args:
+        audio_id_dir: per_audio/<audio_id> directory.
+        project_root: Configured project root for relative path storage and resolution.
+        device: Device flag (logged for traceability).
+        force: Overwrite existing outputs.
 
     Error philosophy:
       - Default: raise on missing expected inputs (broken pipeline state),
@@ -118,7 +126,7 @@ def normalize_single_audio(
     for audio_derivative in STEP3_AUDIO_INPUT:
         entry = meta.get(KEY_AUDIO_FILES, {}).get(audio_derivative, {})
         in_path_str = entry.get(KEY_FIELD_PATH, "")
-        in_path = Path(in_path_str) if in_path_str else None
+        in_path = resolve_metadata_path(in_path_str, project_root) if in_path_str else None
 
         if in_path is None or not in_path.exists():
             msg = (
@@ -156,7 +164,7 @@ def normalize_single_audio(
         print(f"   • Normalized {in_path.name} ({gain_db:+.2f} dB) → {out_path.name}")
 
         # Update metadata: key becomes e.g. "std_vocals_norm" / "std_background_norm"
-        set_metadata_audio(meta, f"{audio_derivative}_{KEY_NORM}", out_path, sr, 1)
+        set_metadata_audio(meta, f"{audio_derivative}_{KEY_NORM}", out_path, sr, 1, project_root)
 
     # Log Step (device is recorded for traceability even if Step 3 is CPU work)
     mark_step(
@@ -184,6 +192,7 @@ def normalize_single_audio(
 
 def run_step_3_normalize(
     workspace: Path | str,
+    project_root: Path | str,
     device: str = "auto",
     force: bool = False,
 ) -> None:
@@ -192,7 +201,15 @@ def run_step_3_normalize(
 
     Runs Step 3 over all per_audio/<audio_id>/ folders that have metadata.
     Uses setup_workspace_run to resolve/standardize device handling (symmetry).
+
+    Args:
+        workspace: processed workspace root
+        project_root: Configured project root for relative path storage and resolution.
+        device: Device flag.
+        force: Overwrite existing outputs.
     """
+    project_root = Path(project_root)
+
     setup = setup_workspace_run(
         workspace=workspace,
         device=device,
@@ -218,6 +235,7 @@ def run_step_3_normalize(
     for audio_id_dir in audio_id_dirs:
         normalize_single_audio(
             audio_id_dir=audio_id_dir,
+            project_root=project_root,
             device=used_device,
             force=setup["force"],
         )
@@ -230,12 +248,14 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run Step 3 (normalization) over a workspace.")
     parser.add_argument("--workspace", required=True, help="Output workspace root directory")
+    parser.add_argument("--project-root", required=True, dest="project_root", help="Project root for relative path storage")
     parser.add_argument("--device", default="auto", help="Device flag (resolved + logged via setup)")
     parser.add_argument("--force", action="store_true", help="Overwrite existing outputs")
     args = parser.parse_args()
 
     run_step_3_normalize(
         workspace=args.workspace,
+        project_root=args.project_root,
         device=args.device,
         force=args.force,
     )

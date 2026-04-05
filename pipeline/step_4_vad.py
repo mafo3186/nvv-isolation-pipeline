@@ -23,6 +23,7 @@ from utils.io import ensure_dir, read_json, write_json
 from pipeline.pipeline_workspace_runner import setup_workspace_run
 from metadata.metadata import audio_dir_metadata_path, mark_step
 from utils.detect_device import detect_device
+from utils.io import to_relative_path, resolve_metadata_path
 from config.constants import (
     EXT_JSON,
     KEY_FIELD_SR,
@@ -75,6 +76,7 @@ def vad_single_audio(
     vad_min_speech_ms: int,
     vad_min_silence_ms: int,
     vad_pad_ms: int,
+    project_root: Path,
     force: bool = False,
 ):
     """
@@ -89,6 +91,7 @@ def vad_single_audio(
         vad_min_speech_ms: minimum accepted speech segment length (ms)
         vad_min_silence_ms: minimum silence gap to split segments (ms)
         vad_pad_ms: context padding around each detected segment (ms)
+        project_root: Configured project root for relative path storage and resolution.
         force: overwrite existing outputs
 
     Error philosophy:
@@ -113,7 +116,8 @@ def vad_single_audio(
     # so we cache per audio_derivative in annotations.vad, not only in steps log.
     prev_entry = (meta.get(KEY_ANNOTATIONS, {}).get(KEY_VAD, {}) or {}).get(audio)
     if prev_entry and not force:
-        prev_path = Path(prev_entry.get(KEY_FIELD_PATH, "")) if prev_entry.get(KEY_FIELD_PATH) else None
+        prev_path_str = prev_entry.get(KEY_FIELD_PATH, "")
+        prev_path = resolve_metadata_path(prev_path_str, project_root) if prev_path_str else None
         if prev_path and prev_path.exists():
             print(f"↪ {audio_id_dir.name}: Step 4 already done for {audio} (cached)")
             return meta
@@ -125,7 +129,7 @@ def vad_single_audio(
     # --- Resolve input wav path from metadata (Single Truth) ---
     audio_info = meta.get(KEY_AUDIO_FILES, {}).get(audio, {})
     wav_path_str = audio_info.get(KEY_FIELD_PATH, "")
-    wav_path = Path(wav_path_str) if wav_path_str else None
+    wav_path = resolve_metadata_path(wav_path_str, project_root) if wav_path_str else None
 
     if wav_path is None or not wav_path.exists():
         raise FileNotFoundError(
@@ -235,7 +239,7 @@ def vad_single_audio(
     # --- 4. Update Metadata (Single Truth mapping by audio_derivative) ---
     meta.setdefault(KEY_ANNOTATIONS, {}).setdefault(KEY_VAD, {})
     meta[KEY_ANNOTATIONS][KEY_VAD][audio] = {
-        KEY_FIELD_PATH: str(vad_path),
+        KEY_FIELD_PATH: to_relative_path(vad_path, project_root),
         "model": "Silero-VAD",
         KEY_FIELD_SR: sr,
         "segment_count": len(segments_in_seconds),
@@ -269,6 +273,7 @@ def run_step_4_vad(
     vad_min_speech_ms: int,
     vad_min_silence_ms: int,
     vad_pad_ms: int,
+    project_root: Path | str,
     device: str = "auto",
     force: bool = False,
 ) -> None:
@@ -282,9 +287,12 @@ def run_step_4_vad(
         vad_min_speech_ms: minimum accepted speech segment length (ms)
         vad_min_silence_ms: minimum silence gap to split segments (ms)
         vad_pad_ms: context padding around each detected segment (ms)
+        project_root: Configured project root for relative path storage and resolution.
         device: torch device string
         force: overwrite existing outputs
     """
+
+    project_root = Path(project_root)
 
     setup = setup_workspace_run(
         workspace=workspace,
@@ -325,6 +333,7 @@ def run_step_4_vad(
                 vad_min_speech_ms=vad_min_speech_ms,
                 vad_min_silence_ms=vad_min_silence_ms,
                 vad_pad_ms=vad_pad_ms,
+                project_root=project_root,
                 force=setup["force"],
             )
 
@@ -345,6 +354,7 @@ if __name__ == "__main__":
     parser.add_argument("--vad_min_speech_ms", type=int, default=75, help="Minimum speech segment length (ms)")
     parser.add_argument("--vad_min_silence_ms", type=int, default=75, help="Minimum silence gap (ms)")
     parser.add_argument("--vad_pad_ms", type=int, default=50, help="Context padding around each segment (ms)")
+    parser.add_argument("--project-root", required=True, dest="project_root", help="Project root for relative path storage")
     parser.add_argument("--device", default="auto", help="Device to use: auto | cuda | cpu")
     parser.add_argument("--force", action="store_true", help="Overwrite existing outputs")
     args = parser.parse_args()
@@ -358,6 +368,7 @@ if __name__ == "__main__":
         vad_min_speech_ms=args.vad_min_speech_ms,
         vad_min_silence_ms=args.vad_min_silence_ms,
         vad_pad_ms=args.vad_pad_ms,
+        project_root=args.project_root,
         device=args.device,
         force=args.force,
     )

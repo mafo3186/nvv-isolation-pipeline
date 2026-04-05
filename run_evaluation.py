@@ -285,7 +285,7 @@ def step_6a_load_selected_set(*, ws, gt_mode: str) -> pd.DataFrame:
     return best_k_df
 
 
-def step_6b_export_clips(*, ds, ws, gt_mode: str, best_k_df: pd.DataFrame) -> None:
+def step_6b_export_clips(*, ds, ws, gt_mode: str, best_k_df: pd.DataFrame, project_root) -> None:
     """
     Step 6b: Export clips for selected set (dataset).
 
@@ -312,6 +312,7 @@ def step_6b_export_clips(*, ds, ws, gt_mode: str, best_k_df: pd.DataFrame) -> No
     for clip_mode in EVAL_CLIP_MODES:
         export_clips(
             workspace=ws.workspace,
+            project_root=project_root,
             mode=clip_mode,
             vad_masks=[best_vad_mask] if best_vad_mask is not None else None,
             asr_audio_ins=[best_asr_audio_in] if best_asr_audio_in is not None else None,
@@ -524,6 +525,7 @@ def run_evaluation_for_dataset(
         ws=ws,
         gt_mode=gt_mode,
         best_k_df=best_k_df,
+        project_root=config.project.project_root,
     )
 
     print_header(

@@ -43,6 +43,7 @@ def _opt_list(values: Optional[List[str]]) -> Optional[List[str]]:
 
 def run_exports(
     workspace: Path | str,
+    project_root: Path | str,
     *,
     labels: bool = True,
     clips: bool = True,
@@ -60,6 +61,7 @@ def run_exports(
 
     Args:
         workspace: Workspace root (contains per_audio/ and global/).
+        project_root: Configured project root for relative path storage and resolution.
         labels: If True, export labels.
         clips: If True, export clips.
         export_vad: If True, export VAD labels.
@@ -72,6 +74,7 @@ def run_exports(
         force: Overwrite existing outputs if True.
     """
     ws = Path(workspace).resolve()
+    project_root = Path(project_root)
 
     # Common case: if both toggles are False, do nothing.
     if not labels and not clips:
@@ -80,6 +83,7 @@ def run_exports(
     if labels:
         export_labels(
             workspace=ws,
+            project_root=project_root,
             export_vad=export_vad,
             export_asr=export_asr,
             export_nvv=export_nvv,
@@ -91,6 +95,7 @@ def run_exports(
     if clips:
         export_clips(
             workspace=ws,
+            project_root=project_root,
             mode=clip_mode,
             vad_masks=vad_masks,
             asr_audio_ins=asr_audio_ins,
@@ -123,6 +128,8 @@ def run_exports_from_config(
         force_labels: Overwrite existing label files if True.
         force_clips: Overwrite existing clip files if True.
     """
+    project_root = config.project.project_root
+
     # 1) Labels (all three)
     if do_labels:
         for dataset in config.datasets:
@@ -131,6 +138,7 @@ def run_exports_from_config(
 
             run_exports(
                 workspace,
+                project_root=project_root,
                 labels=True,
                 clips=False,
                 export_vad=True,
@@ -153,6 +161,7 @@ def run_exports_from_config(
                     for asr_audio_in in config.step_7_nvv.asr_audios_in:
                         run_exports(
                             dataset.workspace,
+                            project_root=project_root,
                             labels=False,
                             clips=True,
                             clip_mode=mode,
@@ -176,6 +185,7 @@ def main() -> None:
 
     # Mode A: workspace-based
     p.add_argument("--workspace", required=False, type=str, help="Workspace root (contains per_audio/ and global/)")
+    p.add_argument("--project-root", required=False, dest="project_root", type=str, help="Project root for relative path storage/resolution (required for workspace-based mode)")
 
     # Mode B: config-based (optional)
     p.add_argument("--config", required=False, type=str, help="Path to config.yaml (runs all datasets)")
@@ -230,6 +240,9 @@ def main() -> None:
     if not args.workspace:
         raise SystemExit("Provide either --workspace or --config.")
 
+    if not args.project_root:
+        raise SystemExit("Provide --project-root when using --workspace mode.")
+
     # If neither labels nor clips explicitly set: do both (the common case "export everything")
     do_labels = args.labels or (not args.labels and not args.clips)
     do_clips = args.clips or (not args.labels and not args.clips)
@@ -244,6 +257,7 @@ def main() -> None:
 
     run_exports(
         args.workspace,
+        project_root=args.project_root,
         labels=do_labels,
         clips=do_clips,
         export_vad=export_vad,

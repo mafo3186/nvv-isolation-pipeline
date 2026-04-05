@@ -41,6 +41,7 @@ from utils.io import (
     audio_dir_metadata_path,
     read_json,
     read_json_with_status,
+    resolve_metadata_path,
 )
 from utils.parsing import (
     parse_vad_and_asr_identifier_from_audio_id_filename,
@@ -60,7 +61,7 @@ def save_clip(y: Any, sr: int, out_path: Path) -> None:
     sf.write(str(out_path), y, sr, subtype="PCM_16")
 
 
-def _resolve_audio_path(meta: Dict[str, Any], asr_audio_in: str, audio_id: str) -> Optional[Path]:
+def _resolve_audio_path(meta: Dict[str, Any], asr_audio_in: str, audio_id: str, project_root: Path) -> Optional[Path]:
     """
     Resolve the audio path for clipping based on asr_audio_in token.
 
@@ -68,11 +69,20 @@ def _resolve_audio_path(meta: Dict[str, Any], asr_audio_in: str, audio_id: str) 
     1) meta["audios"][asr_audio_in]["path"]  (works also for "original" in your newer metadata)
     2) if asr_audio_in == "original": meta["file"]["path"] (backward compat)
 
+    Stored paths may be project-root-relative (new) or absolute (old metadata).
+    resolve_metadata_path handles both cases transparently.
+
     Returns None if not resolvable or file missing.
+
+    Args:
+        meta: per-audio metadata dict
+        asr_audio_in: audio derivative token
+        audio_id: for error messages
+        project_root: Configured project root for path resolution.
     """
     p = (meta.get(KEY_AUDIO_FILES, {}) or {}).get(asr_audio_in, {}).get("path")
     if p:
-        audio_path = Path(p)
+        audio_path = resolve_metadata_path(p, project_root)
         if audio_path.exists():
             return audio_path
         print(f"⚠️ Audio path missing on disk for {audio_id} ({asr_audio_in}): {audio_path}")
@@ -81,7 +91,7 @@ def _resolve_audio_path(meta: Dict[str, Any], asr_audio_in: str, audio_id: str) 
     if asr_audio_in == "original":
         p2 = (meta.get(KEY_FILE, {}) or {}).get("path")
         if p2:
-            audio_path = Path(p2)
+            audio_path = resolve_metadata_path(p2, project_root)
             if audio_path.exists():
                 return audio_path
             print(f"⚠️ Original fallback path missing on disk for {audio_id}: {audio_path}")
@@ -180,6 +190,7 @@ def _export_clips_from_segments(
 
 def export_clips(
     workspace: Path | str,
+    project_root: Path | str,
     *,
     mode: str = "nvv",
     vad_masks: Optional[List[str]] = None,
@@ -192,6 +203,7 @@ def export_clips(
 
     Args:
         workspace: workspace root containing per_audio/ and global/
+        project_root: Configured project root for metadata path resolution.
         mode: "nvv" or "words"
         vad_masks: optional filter list for vad_mask token
         asr_audio_ins: optional filter list for asr_audio_in token
@@ -199,6 +211,7 @@ def export_clips(
         force: overwrite existing clips
     """
     ws = Path(workspace).resolve()
+    project_root = Path(project_root)
     per_audio = ws / KEY_PER_AUDIO
     if not per_audio.exists():
         print(f"❌ per_audio not found: {per_audio}")
@@ -262,7 +275,7 @@ def export_clips(
             if asr_audio_ins is not None and asr_audio_in not in asr_audio_ins:
                 continue
 
-            audio_path = _resolve_audio_path(meta, asr_audio_in, audio_id)
+            audio_path = _resolve_audio_path(meta, asr_audio_in, audio_id, project_root)
             if not audio_path:
                 skipped_no_audio += 1
                 continue

@@ -66,9 +66,7 @@ evaluation:
       cleaned_excel_rel_path: "nvs38k_EN_annotations_cleaned/EN_cleaned.xlsx"
   
   gt_labels_export_rel: "nvs38k_EN_labels_export" # where to export GT labels for evaluation (relative to processed root)
-
   gt_id_column: "video_id"
-  
   gt_merged_cleaned_excel_rel: null # merged GT excel (relative to processed root)
 
 # --- Pipeline Step configuration ---

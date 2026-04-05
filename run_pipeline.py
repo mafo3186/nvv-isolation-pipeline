@@ -79,6 +79,7 @@ def run_pipeline_from_config(
         run_step_1_std(
             input_dir=ds.input_dir,
             workspace=ds.workspace,
+            project_root=config.project.project_root,
             device=config.runtime.device,
             force=config.runtime.force,
         )
@@ -90,6 +91,7 @@ def run_pipeline_from_config(
         run_step_2_separate(
             workspace=ds.workspace,
             model_path=model_path,
+            project_root=config.project.project_root,
             device=config.runtime.device,
             force=config.runtime.force,
         )
@@ -100,6 +102,7 @@ def run_pipeline_from_config(
         print(f"\n🚀 Step 3 for {ds.name} in {ds.workspace}.")
         run_step_3_normalize(
             workspace=ds.workspace,
+            project_root=config.project.project_root,
             device=config.runtime.device,
             force=config.runtime.force,
         )
@@ -115,6 +118,7 @@ def run_pipeline_from_config(
             vad_min_speech_ms=config.step_4_vad.vad_min_speech_ms,
             vad_min_silence_ms=config.step_4_vad.vad_min_silence_ms,
             vad_pad_ms=config.step_4_vad.vad_pad_ms,
+            project_root=config.project.project_root,
             device=config.runtime.device,
             force=config.runtime.force,
         )
@@ -126,6 +130,7 @@ def run_pipeline_from_config(
         print(f"\n🚀 Exporting VAD labels for {ds.name}: {workspace}")
         export_labels(
             workspace=workspace,
+            project_root=config.project.project_root,
             export_vad=True,
             export_asr=False,
             export_nvv=False,
@@ -145,6 +150,7 @@ def run_pipeline_from_config(
             asr_audios_in=config.step_5_asr.asr_audios_in,
             asr_chunk_length_s=config.step_5_asr.asr_chunk_length_s,
             asr_batch_size=config.step_5_asr.asr_batch_size,
+            project_root=config.project.project_root,
             device=config.runtime.device,
             force=config.runtime.force,
         )
@@ -155,6 +161,7 @@ def run_pipeline_from_config(
         print(f"\n🚀 Exporting ASR labels for {ds.name}: {ds.workspace}")
         export_labels(
             workspace=ds.workspace,
+            project_root=config.project.project_root,
             export_vad=False,
             export_asr=True,
             export_nvv=False,
@@ -170,6 +177,7 @@ def run_pipeline_from_config(
         run_step_6_nlp(
             workspace=ds.workspace,
             spacy_model=config.step_6_nlp.spacy_model,
+            project_root=config.project.project_root,
             auto_download=True,
             force=config.runtime.force,
         )
@@ -188,6 +196,7 @@ def run_pipeline_from_config(
             vad_gate_padding=config.step_7_nvv.vad_gate_padding,
             dedup_overlap_ratio=config.step_7_nvv.dedup_overlap_ratio,
             dedup_time_tol_s=config.step_7_nvv.dedup_time_tol_s,
+            project_root=config.project.project_root,
             force=config.runtime.force,
         )
     print("\n✅ Step 7 NVV completed for all datasets.")
@@ -198,6 +207,7 @@ def run_pipeline_from_config(
         print(f"\n🚀 Exporting NVV labels for {ds.name}: {workspace}")
         export_labels(
             workspace=workspace,
+            project_root=config.project.project_root,
             export_vad=False,
             export_asr=False,
             export_nvv=True,
@@ -218,6 +228,7 @@ def run_pipeline_from_config(
                 for asr_audio_in in config.step_7_nvv.asr_audios_in:
                     export_clips(
                         workspace=ds.workspace,
+                        project_root=config.project.project_root,
                         mode=clip_mode,
                         vad_masks=[vad_mask],
                         asr_audio_ins=[asr_audio_in],

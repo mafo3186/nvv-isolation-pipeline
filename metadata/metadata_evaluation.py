@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from utils.io import read_json, write_json, read_json_with_status
+from utils.io import read_json, write_json, read_json_with_status, to_relative_path
 from metadata.metadata import audio_dir_metadata_path
 
 
@@ -37,6 +37,7 @@ def mark_evaluation_run(
     vocals_xlsx: Path,
     params: Dict[str, Any],
     outputs: Dict[str, Any],
+    project_root: Path,
 ) -> Optional[str]:
     """
     Initialize/overwrite evaluation metadata for a single track directory (per_audio/<audio_id>/).
@@ -50,6 +51,7 @@ def mark_evaluation_run(
         vocals_xlsx: Path to the cleaned GT excel used.
         params: Evaluation parameters (e.g., min_overlap_ms, skip_existing).
         outputs: Output paths (csv/xlsx) or other run outputs.
+        project_root: Configured project root for relative path storage.
 
     Returns:
         run_id (str) if metadata exists and was updated, else None.
@@ -68,7 +70,7 @@ def mark_evaluation_run(
         "run": {
             "run_id": run_id,
             "timestamp": _now_ts(),
-            "gt_excel": str(Path(vocals_xlsx).resolve()),
+            "gt_excel": to_relative_path(Path(vocals_xlsx).resolve(), project_root),
             "params": params,
             "outputs": outputs,
         },

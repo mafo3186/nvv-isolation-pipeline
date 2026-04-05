@@ -43,6 +43,7 @@ from utils.io import (
     read_json_with_status,
     write_json,
     audio_dir_metadata_path,
+    to_relative_path,
 )
 from utils.parsing import (
     derive_combo_key,
@@ -155,13 +156,23 @@ def process_single_nlp(
     audio_id_dir: Path | str,
     audio_id: str,
     nlp_model,
+    project_root: Path,
     *,
     force: bool = False,
 ) -> Dict[str, Any]:
     """
     Process one ASR artifact with a pre-loaded spaCy model and update metadata.json.
 
-    Returns a small result dict for logging/debugging.
+    Args:
+        asr_path: Path to the ASR JSON artifact.
+        audio_id_dir: per_audio/<audio_id> directory.
+        audio_id: audio_id_dir.name.
+        nlp_model: Loaded spaCy model.
+        project_root: Configured project root for relative path storage.
+        force: Overwrite existing NLP outputs.
+
+    Returns:
+        A small result dict for logging/debugging.
     """
     asr_path = Path(asr_path)
     audio_id_dir = Path(audio_id_dir)
@@ -210,8 +221,8 @@ def process_single_nlp(
 
     meta.setdefault(KEY_ANNOTATIONS, {}).setdefault(KEY_NLP, {})
     meta[KEY_ANNOTATIONS][KEY_NLP][combo_key] = {
-        KEY_FIELD_PATH: str(nlp_path),
-        "log_path": str(log_path),
+        KEY_FIELD_PATH: to_relative_path(nlp_path, project_root),
+        "log_path": to_relative_path(log_path, project_root),
         "vad_mask": vad_mask,
         "asr_audio_in": asr_audio_in,
         "segments": segments_count,
@@ -237,10 +248,22 @@ def process_single_nlp(
 def run_step_6_nlp(
     workspace: Path | str,
     spacy_model: str,
+    project_root: Path | str,
     *,
     auto_download: bool = True,
     force: bool = False,
 ) -> None:
+    """
+    Workspace runner for Step 6.
+
+    Args:
+        workspace: processed workspace root
+        spacy_model: spaCy model name
+        project_root: Configured project root for relative path storage.
+        auto_download: Auto-download missing spaCy model.
+        force: Overwrite existing results.
+    """
+    project_root = Path(project_root)
 
     setup = setup_workspace_run(
         workspace=workspace,
@@ -284,6 +307,7 @@ def run_step_6_nlp(
                 audio_id_dir=audio_id_dir,
                 audio_id=audio_id,
                 nlp_model=nlp,
+                project_root=project_root,
                 force=force,
             )
             
@@ -315,6 +339,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Step 6 (NLP) over workspace.")
     parser.add_argument("--workspace", required=True, help="Processed workspace (contains metadata.json)")
     parser.add_argument("--spacy-model", default="en_core_web_sm", help="spaCy model name")
+    parser.add_argument("--project-root", required=True, dest="project_root", help="Project root for relative path storage")
     parser.add_argument("--auto-download", action="store_true", help="Auto-download missing spaCy model")
     parser.add_argument("--force", action="store_true", help="Overwrite existing results")
 
@@ -323,6 +348,7 @@ if __name__ == "__main__":
     run_step_6_nlp(
         workspace=Path(args.workspace),
         spacy_model=args.spacy_model,
+        project_root=args.project_root,
         auto_download=args.auto_download,
         force=args.force,
     )
