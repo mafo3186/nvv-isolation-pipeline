@@ -41,7 +41,7 @@ project:
 
 paths:
   raw_root: "data/raw"
-  processed_root: "data/processed/experiment_parameter_screening" # relative to project root
+  processed_root: "data/processed/VOCAL_10_categories" # relative to project root
 
 runtime:
   device: "cuda"
