@@ -41,7 +41,7 @@ project:
 
 paths:
   raw_root: "data/raw"
-  processed_root: "data/processed/nvs38k_EN" # relative to project root
+  processed_root: "data/processed/NVS-38K_EN" # relative to project root
 
 runtime:
   device: "cuda"
@@ -50,23 +50,24 @@ runtime:
 # --- Pipeline: Input / Workspace selection (user-editable) ---
 workspace:
   datasets:
-    - name: "nvs38k_EN"
-      input_rel: "experiment_pipeline_evaluation/nvs38k_EN" 
-      output_rel: "nvs38k_EN"
+    - name: "NVS-38K_EN"
+      input_rel: "experiment_pipeline_evaluation/NVS-38K_EN" 
+      output_rel: "NVS-38K_EN"
 
 
 # --- Evaluation / Ground Truth / Preprocessing configuration: special case VOCALS concrete paths) ---
 evaluation:
-  gt_mode: part_gt
-  part_gt_additional_selected_set: [] # wait for full_gt ["std_vocals_norm_vad_original_asr_nlp_nvv", "std_vocals_norm_vad_std_asr_nlp_nvv"]
-  gt_units:
-  - name: nvs38k_EN
-    raw_excel_rel_path: nonverbalspeech38k/subsets/EN_vocals_like.xlsx
-    cleaned_excel_rel_path: nvs38k_EN_annotations_cleaned/EN_vocals_like_cleaned.xlsx
-  gt_labels_export_rel: nvs38k_EN_labels_export
+  gt_mode: "full_gt" 
+  part_gt_additional_selected_set: [] # wait for full-gt results to select best set for part-gt
 
-  gt_id_column: video_id
-  gt_merged_cleaned_excel_rel: null
+  gt_units:
+    - name: "NVS-38K_EN"
+      raw_excel_rel_path: "ground_truth_excel_files/NVS-38K/EN.xlsx"
+      cleaned_excel_rel_path: "GT_NVS-38K_EN_annotations_cleaned/EN_cleaned.xlsx"
+
+  gt_id_column: "video_id"
+  gt_labels_export_rel: "GT_NVS-38K_EN_labels_export" 
+  gt_merged_cleaned_excel_rel: null 
 
 
 # --- Pipeline Step configuration ---
