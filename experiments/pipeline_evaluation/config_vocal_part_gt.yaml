@@ -62,7 +62,7 @@ workspace:
 # --- Evaluation / Ground Truth / Preprocessing configuration: special case VOCALS concrete paths) ---
 evaluation:
   gt_mode: "part_gt"   # "full_gt" or "part_gt"; controls which evaluation metrics are used for evaluation
-  part_gt_additional_selected_set: ["std_vocals_norm_vad_original_asr_nlp_nvv", "std_vocals_norm_vad_std_asr_nlp_nvv"]
+  part_gt_additional_selected_set: [] # wait for full_gt ["std_vocals_norm_vad_original_asr_nlp_nvv", "std_vocals_norm_vad_std_asr_nlp_nvv"]
   # Ground-truth “units” (one per original excel)
   gt_units:
     - name: "VOCAL_RA1"
@@ -115,9 +115,9 @@ pipeline:
   7_nvv:
     exclude_categories: ["word"]
     min_duration: 0.2 # shortest VOCALS segment is 0.2s, so this is a natural lower bound to test
-    max_duration: 6.5 # longest VOCALS segment is 6.5s, so this is a natural upper bound to test, experiment results did not show significant differences between [null] and [6.5]
+    max_duration: null # experiment result inconclusive, set to none for recall maximization
     vad_gate_padding: 0.0
-    dedup_overlap_ratio: 0.5 # experiment result
+    dedup_overlap_ratio: 0.5 # experiment result inconclusive, set to 0.5 for more aggressive deduplication (recall maximization)
     dedup_time_tol_s: 0.01 # same as params.EVAL_DEDUP_EPS_S
     vad_masks_in: "all"
     asr_audios_in: "all"
