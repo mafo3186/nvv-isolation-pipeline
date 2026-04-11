@@ -62,7 +62,7 @@ workspace:
 # --- Evaluation / Ground Truth / Preprocessing configuration: special case VOCALS concrete paths) ---
 evaluation:
   gt_mode: "part_gt"   # "full_gt" or "part_gt"; controls which evaluation metrics are used for evaluation
-  part_gt_additional_selected_set: [] # wait for full_gt ["std_vocals_norm_vad_original_asr_nlp_nvv", "std_vocals_norm_vad_std_asr_nlp_nvv"]
+  part_gt_additional_selected_set: ["std_vocals_vad_std_vocals_norm_asr_nlp_nvv", "std_background_vad_original_asr_nlp_nvv"] # wait for full_gt, before: ["std_vocals_norm_vad_original_asr_nlp_nvv", "std_vocals_norm_vad_std_asr_nlp_nvv"]
   # Ground-truth “units” (one per original excel)
   gt_units:
     - name: "VOCAL_RA1"
