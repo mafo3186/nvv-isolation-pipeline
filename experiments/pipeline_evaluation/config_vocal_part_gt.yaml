@@ -61,36 +61,25 @@ workspace:
 
 # --- Evaluation / Ground Truth / Preprocessing configuration: special case VOCALS concrete paths) ---
 evaluation:
-  gt_mode: "part_gt"   # "full_gt" or "part_gt"; controls which evaluation metrics are used for evaluation
-  part_gt_additional_selected_set: ["std_vocals_vad_std_vocals_norm_asr_nlp_nvv", "std_background_vad_original_asr_nlp_nvv"] # wait for full_gt, before: ["std_vocals_norm_vad_original_asr_nlp_nvv", "std_vocals_norm_vad_std_asr_nlp_nvv"]
-  # Ground-truth “units” (one per original excel)
+  gt_mode: "part_gt"   
+  part_gt_additional_selected_set: ["std_vocals_vad_std_vocals_norm_asr_nlp_nvv", "std_background_vad_original_asr_nlp_nvv"] # wait for full-gt results to select best set for part-gt
+
   gt_units:
-    - name: "VOCAL_RA1"
-      # Original VOCALS excel (relative to raw_root)
-      raw_excel_rel_path: "Annotation_Main_20260202/Alma/ra1_dataset/annotations_template_RA1.xlsx"
-      # Where the cleaned version will be written (relative to processed_root)
-      cleaned_excel_rel_path: "VOCAL_annotations_cleaned/annotations_template_RA1_cleaned.xlsx"
-      # VOCALS-only: root folder that contains the WAVs for this excel (relative to raw_root)
+    - name: "RA1"
+      raw_excel_rel_path: "ground_truth_excel_files/VOCAL/annotations_template_RA1.xlsx"
+      cleaned_excel_rel_path: "GT_VOCAL_annotations_cleaned/annotations_template_RA1_cleaned.xlsx"
       vocals_dataset_root_rel: "Annotation_Main_20260202/Alma/ra1_dataset"
-      # VOCALS-only: where to copy the annotated wav subset to (relative to raw_root)
-      vocals_subset_copy_rel: "VOCAL/RA1"
+      vocals_subset_copy_rel: "VOCAL_annotated_wavs/RA1"
 
-    - name: "VOCAL_RA2"
-      raw_excel_rel_path: "Annotation_Main_20260202/Arya/ra2_dataset/annotations_template_RA2.xlsx"
-      cleaned_excel_rel_path: "VOCAL_annotations_cleaned/annotations_template_RA2_cleaned.xlsx"
+    - name: "RA2"
+      raw_excel_rel_path: "ground_truth_excel_files/VOCAL/annotations_template_RA2.xlsx"
+      cleaned_excel_rel_path: "GT_VOCAL_annotations_cleaned/annotations_template_RA2_cleaned.xlsx"
       vocals_dataset_root_rel: "Annotation_Main_20260202/Arya/ra2_dataset"
-      vocals_subset_copy_rel: "VOCAL/RA2"
+      vocals_subset_copy_rel: "VOCAL_annotated_wavs/RA2"
 
-
-  # Column name used to map GT rows -> audio_id
   gt_id_column: "video_id"
-
-  # Where GT label exports go (relative to processed_root)
-  gt_labels_export_rel: "VOCAL_labels"
-
-  # Optional merged GT (relative to processed_root).
-  # If set (non-null), evaluation should use THIS as the single “truth” file.
-  gt_merged_cleaned_excel_rel: "VOCAL_annotations_cleaned/annotations_template_VOCAL_cleaned_merged.xlsx"
+  gt_labels_export_rel: "GT_VOCAL_labels"
+  gt_merged_cleaned_excel_rel: "GT_VOCAL_annotations_cleaned/annotations_template_VOCAL_cleaned_merged.xlsx"
 
 # --- Pipeline Step configuration ---
 pipeline:

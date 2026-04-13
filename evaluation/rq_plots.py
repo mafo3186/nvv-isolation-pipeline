@@ -13,6 +13,11 @@ def plot_rq1_full_gt_grouped_bars(rq1_full_gt: pd.DataFrame) -> plt.Figure:
     """
     Plot grouped bars for RQ1 full_gt: Baseline vs Best Selected Set across metrics.
 
+    Metrics shown:
+        - F1
+        - Recall
+        - EOS Recall
+
     Args:
         rq1_full_gt: RQ1 full_gt table.
 
@@ -22,46 +27,70 @@ def plot_rq1_full_gt_grouped_bars(rq1_full_gt: pd.DataFrame) -> plt.Figure:
     df = rq1_full_gt.copy()
     df = df[df["System"].isin(["Baseline", "Best Selected Set"])].copy()
 
-    metrics = [c for c in ["F1", "Recall", "Mean EOS TP"] if c in df.columns]
+    metrics = [c for c in ["F1", "Recall", "EOS Recall"] if c in df.columns]
     systems = ["Baseline", "Best Selected Set"]
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    x = np.arange(len(metrics))
-    width = 0.35
+    colors = {
+        "Baseline": "#7A8594",
+        "Best Selected Set": "#0655CB",
+    }
+
+    fig, ax = plt.subplots(figsize=(7.5, 4.5))
+
+    # Slightly larger spacing between metric groups
+    x = np.arange(len(metrics)) * 1.0
+    width = 0.2
 
     for idx, system in enumerate(systems):
         row = df[df["System"] == system].iloc[0]
         values = [row[m] for m in metrics]
-        ax.bar(x + (idx - 0.5) * width, values, width=width, label=system)
+        ax.bar(
+            x + (idx - 0.1) * width,
+            values,
+            width=width,
+            label=system,
+            color=colors[system],
+            #hatch=hatches[system],
+            #edgecolor="black",
+            #linewidth=0.6,
+        )
 
-    ax.set_title("RQ1 Capability – Full-GT")
+    ax.set_title("NVS-38K_EN | full_gt")
     ax.set_xlabel("Metric")
     ax.set_ylabel("Score")
     ax.set_xticks(x)
     ax.set_xticklabels(metrics)
-    ax.legend()
+    ax.set_ylim(0, 0.35)
+    ax.legend(frameon=False)
+    ax.grid(axis="y", linestyle="--", alpha=0.35)
+
     fig.tight_layout()
     return fig
+
 
 def plot_rq1_part_gt_grouped_bars(
     rq1_part_gt: pd.DataFrame,
     *,
-    metric: str = "Recall",
     setting_order: Optional[list[str]] = None,
 ) -> plt.Figure:
     """
-    Plot grouped bars for RQ1 part_gt across settings for one metric.
+    Plot grouped bars for RQ1 part_gt as three subplots, one per setting.
+
+    Metrics shown per subplot:
+        - Recall
+        - EOS Recall
 
     Args:
         rq1_part_gt: RQ1 part_gt table.
-        metric: Metric column to plot.
         setting_order: Explicit setting order from the analysis bundle.
 
     Returns:
         Matplotlib figure.
     """
-    if metric not in rq1_part_gt.columns:
-        raise KeyError(f"Missing metric column '{metric}'.")
+    required_metrics = ["Recall", "EOS Recall"]
+    missing = [m for m in required_metrics if m not in rq1_part_gt.columns]
+    if missing:
+        raise KeyError(f"Missing metric columns: {missing}")
 
     df = rq1_part_gt.copy()
     df = df[df["System"].isin(["Baseline", "Best Selected Set"])].copy()
@@ -72,26 +101,55 @@ def plot_rq1_part_gt_grouped_bars(
     settings = [s for s in setting_order if s in df["Setting"].unique()]
     systems = ["Baseline", "Best Selected Set"]
 
-    fig, ax = plt.subplots(figsize=(max(6, 2.8 * len(settings)), 5))
-    x = np.arange(len(settings))
-    width = 0.35
+    colors = {
+        "Baseline": "#7A8594",
+        "Best Selected Set": "#0655CB",
+    }
 
-    for idx, system in enumerate(systems):
-        values = []
-        for setting in settings:
+    fig, axes = plt.subplots(
+        nrows=1,
+        ncols=len(settings),
+        figsize=(4.4 * len(settings), 4.5),
+        sharey=True,
+    )
+
+    if len(settings) == 1:
+        axes = [axes]
+
+    metrics = ["Recall", "EOS Recall"]
+    width = 0.2
+
+    for ax, setting in zip(axes, settings):
+        x = np.arange(len(metrics)) * 1.0
+
+        for idx, system in enumerate(systems):
             subset = df[(df["Setting"] == setting) & (df["System"] == system)]
             if subset.empty:
-                values.append(np.nan)
+                values = [np.nan] * len(metrics)
             else:
-                values.append(subset.iloc[0][metric])
-        ax.bar(x + (idx - 0.5) * width, values, width=width, label=system)
+                row = subset.iloc[0]
+                values = [row[m] for m in metrics]
 
-    ax.set_title(f"RQ1 Capability – Part-GT ({metric})")
-    ax.set_xlabel("Setting")
-    ax.set_ylabel(metric)
-    ax.set_xticks(x)
-    ax.set_xticklabels(settings, rotation=20)
-    ax.legend()
+            ax.bar(
+                x + (idx - 0.1) * width,
+                values,
+                width=width,
+                label=system,
+                color=colors[system],
+                #hatch=hatches[system],
+                #edgecolor="black",
+                #linewidth=0.6,
+            )
+
+        ax.set_title(setting)
+        ax.set_xticks(x)
+        ax.set_xticklabels(metrics)
+        ax.set_ylim(0, 0.35)
+        ax.grid(axis="y", linestyle="--", alpha=0.35)
+
+    axes[0].set_ylabel("Score")
+    axes[0].legend(frameon=False)
+
     fig.tight_layout()
     return fig
 
