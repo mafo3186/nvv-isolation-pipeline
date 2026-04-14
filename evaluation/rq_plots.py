@@ -45,7 +45,7 @@ def plot_rq1_full_gt_grouped_bars(rq1_full_gt: pd.DataFrame) -> plt.Figure:
         row = df[df["System"] == system].iloc[0]
         values = [row[m] for m in metrics]
         ax.bar(
-            x + (idx - 0.1) * width,
+            x + (idx - 0.5) * width,
             values,
             width=width,
             label=system,
@@ -54,7 +54,9 @@ def plot_rq1_full_gt_grouped_bars(rq1_full_gt: pd.DataFrame) -> plt.Figure:
             #edgecolor="black",
             #linewidth=0.6,
         )
+        
 
+    ax.margins(x=0.15)
     ax.set_title("NVS-38K_EN | full_gt")
     ax.set_xlabel("Metric")
     ax.set_ylabel("Score")
@@ -131,7 +133,7 @@ def plot_rq1_part_gt_grouped_bars(
                 values = [row[m] for m in metrics]
 
             ax.bar(
-                x + (idx - 0.1) * width,
+                x + (idx - 0.5) * width,
                 values,
                 width=width,
                 label=system,
@@ -140,7 +142,8 @@ def plot_rq1_part_gt_grouped_bars(
                 #edgecolor="black",
                 #linewidth=0.6,
             )
-
+            
+        ax.margins(x=0.15)
         ax.set_title(setting)
         ax.set_xticks(x)
         ax.set_xticklabels(metrics)
@@ -151,6 +154,144 @@ def plot_rq1_part_gt_grouped_bars(
     axes[0].legend(frameon=False)
 
     fig.tight_layout()
+    return fig
+
+def plot_rq1_all_settings_grouped_bars(
+    rq1_full_gt: pd.DataFrame,
+    rq1_part_gt: pd.DataFrame,
+    *,
+    setting_order: Optional[list[str]] = None,
+) -> plt.Figure:
+    """
+    Plot one horizontal RQ1 overview figure with one panel per setting.
+
+    Panel 1:
+        - full_gt setting(s), using metrics:
+          F1, Recall, EOS Recall
+
+    Remaining panels:
+        - part_gt settings, using metrics:
+          Recall, EOS Recall
+
+    Args:
+        rq1_full_gt: Formatted RQ1 full_gt table.
+        rq1_part_gt: Formatted RQ1 part_gt table.
+        setting_order: Explicit global setting order from the analysis bundle.
+
+    Returns:
+        Matplotlib figure.
+    """
+    systems = ["Baseline", "Best Selected Set"]
+    colors = {
+        "Baseline": "#7A8594",
+        "Best Selected Set": "#0655CB",
+    }
+
+    full_df = rq1_full_gt.copy()
+    part_df = rq1_part_gt.copy()
+
+    full_df = full_df[full_df["System"].isin(systems)].copy()
+    part_df = part_df[part_df["System"].isin(systems)].copy()
+
+    full_settings = full_df["Setting"].dropna().astype(str).unique().tolist()
+
+    if setting_order is None:
+        part_settings = part_df["Setting"].dropna().astype(str).unique().tolist()
+    else:
+        part_settings = [
+            s for s in setting_order
+            if s in part_df["Setting"].dropna().astype(str).unique().tolist()
+        ]
+
+    all_panels: list[tuple[str, pd.DataFrame, list[str]]] = []
+
+    for setting in full_settings:
+        all_panels.append(
+            (
+                setting,
+                full_df[full_df["Setting"] == setting].copy(),
+                [m for m in ["F1", "Recall", "EOS Recall"] if m in full_df.columns],
+            )
+        )
+
+    for setting in part_settings:
+        all_panels.append(
+            (
+                setting,
+                part_df[part_df["Setting"] == setting].copy(),
+                [m for m in ["Recall", "EOS Recall"] if m in part_df.columns],
+            )
+        )
+
+    n_panels = len(all_panels)
+    if n_panels == 0:
+        raise ValueError("No RQ1 settings available for plotting.")
+
+    fig, axes = plt.subplots(
+        nrows=1,
+        ncols=n_panels,
+        figsize=(4.2 * n_panels, 4.8),
+        sharey=True,
+    )
+
+    if n_panels == 1:
+        axes = [axes]
+
+    width = 0.28
+    legend_handles = None
+    legend_labels = None
+    font_size = 16
+
+    for ax, (setting, df_setting, metrics) in zip(axes, all_panels):
+        x = np.arange(len(metrics)) * 1.0
+
+        local_handles = []
+        local_labels = []
+
+        for idx, system in enumerate(systems):
+            row = df_setting[df_setting["System"] == system]
+            if row.empty:
+                values = [np.nan] * len(metrics)
+            else:
+                row = row.iloc[0]
+                values = [row[m] for m in metrics]
+
+            bars = ax.bar(
+                x + (idx - 0.5) * width,
+                values,
+                width=width,
+                color=colors[system],
+                label=system,
+            )
+
+            if legend_handles is None:
+                local_handles.append(bars[0])
+                local_labels.append(system)
+
+        if legend_handles is None:
+            legend_handles = local_handles
+            legend_labels = local_labels
+
+        ax.margins(x=0.20)
+        ax.set_title(setting, fontsize=font_size)
+        ax.set_xticks(x)
+        ax.set_xticklabels(metrics, fontsize=font_size)
+        ax.set_ylim(0, 0.35)
+        ax.grid(axis="y", linestyle="--", alpha=0.35)
+
+    axes[0].set_ylabel("Score", fontsize=font_size)
+
+    fig.legend(
+        legend_handles,
+        legend_labels,
+        loc="upper center",
+        ncol=2,
+        frameon=False,
+        bbox_to_anchor=(0.5, 1.02),
+        fontsize=font_size,
+    )
+
+    fig.tight_layout(rect=[0, 0, 1, 0.92])
     return fig
 
 # --- RQ2a ---
@@ -189,6 +330,14 @@ def plot_rq2a_rank_vs_score(
 
     fig, ax = plt.subplots(figsize=(9, 5))
 
+    font_size = 16
+    colors = {
+        "NVS-38K_EN | full_gt": "#5A189A",   # Indigo Velvet
+        "NVS-38K_EN | part_gt": "#5A189A",   # Indigo Velvet
+        "VOCAL_RA1 | part_gt": "#1C9800",    # dark green "#2D6A4F", ##38B000"
+        "VOCAL_RA2 | part_gt":  "#70E000",    # Slime Lime "#9EF01A" "#74C69D",# "#70E000"
+    }
+
     for setting in settings:
         df_setting = df[df["setting"] == setting].copy()
         df_setting = df_setting.sort_values("rank_within_run", ascending=True).head(top_k)
@@ -198,12 +347,15 @@ def plot_rq2a_rank_vs_score(
             df_setting[score_col],
             marker="o",
             label=setting,
+            color=colors.get(setting, None),
+            markersize=5,
+            linewidth=1.5,
         )
 
-    ax.set_title(f"RQ2a Configuration Ranking –  Single Best – {get_metric_label(score_col)}")
-    ax.set_xlabel("Rank")
-    ax.set_ylabel(get_metric_label(score_col))
-    ax.legend()
+    ax.set_title(f"Single Configuration Ranking – {mode} – {get_metric_label(score_col)}", fontsize=font_size)
+    ax.set_xlabel("Rank", fontsize=font_size)
+    ax.set_ylabel(get_metric_label(score_col), fontsize=font_size)
+    ax.legend(fontsize=font_size)
     fig.tight_layout()
     return fig
 
