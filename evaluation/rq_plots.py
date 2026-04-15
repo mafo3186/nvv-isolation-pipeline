@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 from evaluation.analysis_metrics import get_metric_label, get_ordered_metric_names
 
-# --- RQ1 ---
+# --- RQ1 Capability ---
 
 def plot_rq1_full_gt_grouped_bars(rq1_full_gt: pd.DataFrame) -> plt.Figure:
     """
@@ -294,7 +294,7 @@ def plot_rq1_all_settings_grouped_bars(
     fig.tight_layout(rect=[0, 0, 1, 0.92])
     return fig
 
-# --- RQ2a ---
+# --- RQ2a Ranking ---
 
 def plot_rq2a_rank_vs_score(
     ranking_single: pd.DataFrame,
@@ -334,8 +334,8 @@ def plot_rq2a_rank_vs_score(
     colors = {
         "NVS-38K_EN | full_gt": "#5A189A",   # Indigo Velvet
         "NVS-38K_EN | part_gt": "#5A189A",   # Indigo Velvet
-        "VOCAL_RA1 | part_gt": "#1C9800",    # dark green "#2D6A4F", ##38B000"
-        "VOCAL_RA2 | part_gt":  "#70E000",    # Slime Lime "#9EF01A" "#74C69D",# "#70E000"
+        "VOCAL_RA1 | part_gt": "#1C9800",    # forest green 
+        "VOCAL_RA2 | part_gt":  "#70E000",    # radioactive grass
     }
 
     for setting in settings:
@@ -354,8 +354,93 @@ def plot_rq2a_rank_vs_score(
 
     ax.set_title(f"Single Configuration Ranking – {mode} – {get_metric_label(score_col)}", fontsize=font_size)
     ax.set_xlabel("Rank", fontsize=font_size)
+    # set x-ticks at integer ranks, with a step of 5 for readability
+    ax.set_xticks(range(0, top_k, 5))
     ax.set_ylabel(get_metric_label(score_col), fontsize=font_size)
     ax.legend(fontsize=font_size)
+    fig.tight_layout()
+    return fig
+
+
+# --- RQ2a Complimentary Combination ---
+def plot_rq2a_f1_vs_k(
+    df_f1_vs_k: pd.DataFrame,
+    *,
+    setting: str,
+) -> plt.Figure:
+    """
+    Plot greedy forward selection curve (F1 vs k).
+
+    Args:
+        df_f1_vs_k: DataFrame with columns ["k", "macro_mean_f1"].
+        setting: Setting label for title.
+
+    Returns:
+        Matplotlib figure.
+    """
+    required_cols = ["k", "macro_mean_f1"]
+    missing = [c for c in required_cols if c not in df_f1_vs_k.columns]
+    if missing:
+        raise KeyError(f"Missing columns: {missing}")
+
+    df = df_f1_vs_k.copy().sort_values("k")
+
+    fig, ax = plt.subplots(figsize=(7.5, 4.5))
+    font_size = 16
+    colors = {
+        "NVS-38K_EN | full_gt": "#5A189A",
+    }
+
+    # extract best_k
+    best_k = None
+    if "best_k" in df.columns and df["best_k"].notna().any():
+        best_k = int(df["best_k"].dropna().iloc[0])
+
+    if best_k is not None:
+        y_best = df.loc[df["k"] == best_k, "macro_mean_f1"].values[0]
+
+    ax.scatter(best_k, y_best, s=80, zorder=3)
+
+    ax.text(
+        best_k,
+        y_best + 0.003,
+        f"  k={best_k}",
+        va="bottom",
+        ha="left",
+        fontsize=font_size * 0.8,
+    )
+
+    ax.axvline(best_k, linestyle="--", linewidth=1, alpha=0.5)
+    
+    ax.plot(
+        df["k"],
+        df["macro_mean_f1"],
+        marker="o",
+        label=setting,
+        color=colors.get(setting, None),
+        markersize=5,
+        linewidth=1.5,
+    )
+
+    ax.set_ylabel("F1", fontsize=font_size)
+    y_max = df["macro_mean_f1"].max()
+
+    if "best_k" in df.columns:
+        best_row = df[df["best_k"] == True]
+        if not best_row.empty:
+            x = best_row["k"].iloc[0]
+            y = best_row["macro_mean_f1"].iloc[0]
+            ax.scatter([x], [y], zorder=3)
+            ax.text(x, y, f"  k={int(x)}", va="bottom")
+
+    ax.set_title(f"Greedy Forward Selection", fontsize=font_size)
+    ax.set_xlabel("k - number of combined configurations", fontsize=font_size)
+    ax.set_xticks(range(0, int(df["k"].max()) + 1, 5))
+
+    ax.set_ylim(top=y_max * 1.08)
+    ax.legend(fontsize=font_size)
+    ax.grid(axis="y", linestyle="--", alpha=0.3)
+
     fig.tight_layout()
     return fig
 

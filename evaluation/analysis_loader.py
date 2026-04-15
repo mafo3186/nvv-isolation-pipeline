@@ -5,6 +5,7 @@ from typing import Any, Optional, List
 
 from config.path_factory import (
     get_datasets,
+    get_global_f1_vs_k_csv_path,
     get_workspace_paths,
     get_experiment_run_root,
     get_rq1_pipeline_capability_csv_path,
@@ -98,6 +99,9 @@ def load_rq_results(
         "rq3_label": get_rq3_nvv_coverage_label_rq_csv_path(evaluation_dir, mode),
         "rq3_global": get_rq3_nvv_coverage_global_rq_csv_path(evaluation_dir, mode),
     }
+
+    if mode == "full_gt":
+        paths["rq2a_f1_vs_k"] = get_global_f1_vs_k_csv_path(evaluation_dir, mode)
 
     return {
         key: load_csv_or_fail(path)
