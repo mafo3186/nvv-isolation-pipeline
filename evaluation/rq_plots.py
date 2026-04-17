@@ -7,7 +7,240 @@ import matplotlib.pyplot as plt
 
 from evaluation.analysis_metrics import get_metric_label, get_ordered_metric_names
 
+
+# --- Barplot Wrapper ---
+
+def plot_grouped_bars_all_settings(
+    full_df: pd.DataFrame,
+    part_df: pd.DataFrame,
+    *,
+    setting_order: Optional[list[str]] = None,
+    systems: Optional[list[str]] = None,
+    colors: Optional[dict[str, str]] = None,
+    full_metrics: Optional[list[str]] = None,
+    part_metrics: Optional[list[str]] = None,
+    y_label: str = "Score",
+    y_lim: tuple[float, float] = (0, 0.35),
+    font_size: int = 16,
+    bar_width: float = 0.28,
+    panel_width: float = 4.2,
+    panel_height: float = 4.8,
+    x_margin: float = 0.20,
+    legend_bbox_y: float = 1.02,
+    title: Optional[str] = None,
+) -> plt.Figure:
+    """
+    Plot one horizontal grouped-bar overview figure with one panel per setting.
+
+    Full-GT panels use `full_metrics`.
+    Part-GT panels use `part_metrics`.
+
+    Args:
+        full_df: Formatted full_gt table.
+        part_df: Formatted part_gt table.
+        setting_order: Explicit global setting order.
+        systems: Systems to compare, in plot order.
+        colors: Mapping system -> color.
+        full_metrics: Metrics shown for full_gt panels.
+        part_metrics: Metrics shown for part_gt panels.
+        y_label: Shared y-axis label.
+        y_lim: Shared y-axis limits.
+        font_size: Base font size.
+        bar_width: Bar width.
+        panel_width: Width per subplot panel.
+        panel_height: Figure height.
+        x_margin: Horizontal subplot margin.
+        legend_bbox_y: Vertical anchor of shared legend.
+        title: Optional figure title.
+
+    Returns:
+        Matplotlib figure.
+    """
+    if systems is None:
+        systems = ["Baseline", "Best Single", "Best Selected Set"]
+
+    default_palette = {
+        "Baseline": "#7A8594",
+        "Best Single": "#719AD4",
+        "Best Selected Set": "#0655CB",
+    }
+
+    if colors is None:
+        colors = {}
+        palette_values = list(default_palette.values())
+        for idx, system in enumerate(systems):
+            if system in default_palette:
+                colors[system] = default_palette[system]
+            else:
+                colors[system] = palette_values[idx % len(palette_values)]
+
+    if full_metrics is None:
+        full_metrics = ["F1", "Recall", "EOS Recall"]
+
+    if part_metrics is None:
+        part_metrics = ["Recall", "EOS Recall"]
+
+    full_df = full_df.copy()
+    part_df = part_df.copy()
+
+    full_df = full_df[full_df["System"].isin(systems)].copy()
+    part_df = part_df[part_df["System"].isin(systems)].copy()
+
+    full_settings = full_df["Setting"].dropna().astype(str).unique().tolist()
+
+    if setting_order is None:
+        part_settings = part_df["Setting"].dropna().astype(str).unique().tolist()
+    else:
+        part_settings = [
+            s for s in setting_order
+            if s in part_df["Setting"].dropna().astype(str).unique().tolist()
+        ]
+
+    all_panels: list[tuple[str, pd.DataFrame, list[str]]] = []
+
+    for setting in full_settings:
+        all_panels.append(
+            (
+                setting,
+                full_df[full_df["Setting"] == setting].copy(),
+                [m for m in full_metrics if m in full_df.columns],
+            )
+        )
+
+    for setting in part_settings:
+        all_panels.append(
+            (
+                setting,
+                part_df[part_df["Setting"] == setting].copy(),
+                [m for m in part_metrics if m in part_df.columns],
+            )
+        )
+
+    n_panels = len(all_panels)
+    if n_panels == 0:
+        raise ValueError("No settings available for plotting.")
+
+    fig, axes = plt.subplots(
+        nrows=1,
+        ncols=n_panels,
+        figsize=(panel_width * n_panels, panel_height),
+        sharey=True,
+    )
+
+    if n_panels == 1:
+        axes = [axes]
+
+    legend_handles = None
+    legend_labels = None
+
+    for ax, (setting, df_setting, metrics) in zip(axes, all_panels):
+        x = np.arange(len(metrics)) * 1.0
+
+        local_handles = []
+        local_labels = []
+
+        # symmetric positioning for any number of systems
+        center_offset = (len(systems) - 1) / 2
+
+        for idx, system in enumerate(systems):
+            row = df_setting[df_setting["System"] == system]
+
+            if row.empty:
+                values = [np.nan] * len(metrics)
+            else:
+                row = row.iloc[0]
+                values = [row[m] for m in metrics]
+
+            bars = ax.bar(
+                x + (idx - center_offset) * bar_width,
+                values,
+                width=bar_width,
+                color=colors[system],
+                label=system,
+            )
+
+            if legend_handles is None:
+                local_handles.append(bars[0])
+                local_labels.append(system)
+
+        if legend_handles is None:
+            legend_handles = local_handles
+            legend_labels = local_labels
+
+        ax.margins(x=x_margin)
+        ax.set_title(setting, fontsize=font_size)
+        ax.set_xticks(x)
+        ax.set_xticklabels(metrics, fontsize=font_size)
+        ax.set_ylim(*y_lim)
+        ax.tick_params(axis="y", labelsize=font_size)
+        ax.grid(axis="y", linestyle="--", alpha=0.35)
+
+    axes[0].set_ylabel(y_label, fontsize=font_size)
+
+    fig.legend(
+        legend_handles,
+        legend_labels,
+        loc="upper center",
+        ncol=len(systems),
+        frameon=False,
+        bbox_to_anchor=(0.5, legend_bbox_y),
+        fontsize=font_size,
+    )
+
+    if title is not None:
+        fig.suptitle(title, fontsize=font_size)
+        fig.tight_layout(rect=[0, 0, 1, 0.90])
+    else:
+        fig.tight_layout(rect=[0, 0, 1, 0.92])
+
+    return fig
+
+
 # --- RQ1 Capability ---
+def plot_rq1_all_settings_grouped_bars(
+    rq1_full_gt: pd.DataFrame,
+    rq1_part_gt: pd.DataFrame,
+    *,
+    setting_order: Optional[list[str]] = None,
+    colors: Optional[dict[str, str]] = None,
+) -> plt.Figure:
+    """
+    Plot RQ1 grouped bars across all settings.
+    """
+    return plot_grouped_bars_all_settings(
+        rq1_full_gt,
+        rq1_part_gt,
+        setting_order=setting_order,
+        systems=["Baseline", "Best Selected Set"],
+        colors=colors,
+        full_metrics=["F1", "Recall", "EOS Recall"],
+        part_metrics=["Recall", "EOS Recall"],
+        y_label="Score",
+    )
+
+
+def plot_rq2a_selected_set_all_settings_grouped_bars(
+    rq2_full_gt: pd.DataFrame,
+    rq2_part_gt: pd.DataFrame,
+    *,
+    setting_order: Optional[list[str]] = None,
+    colors: Optional[dict[str, str]] = None,
+) -> plt.Figure:
+    """
+    Plot RQ2a selected-set grouped bars across all settings.
+    """
+    return plot_grouped_bars_all_settings(
+        rq2_full_gt,
+        rq2_part_gt,
+        setting_order=setting_order,
+        systems=["Best Single", "Best Selected Set"],
+        colors=colors,
+        full_metrics=["F1", "Recall", "EOS Recall"],
+        part_metrics=["Recall", "EOS Recall"],
+        y_label="Score",
+    )
+
+# --- legacy!!! RQ1 Capability ---
 
 def plot_rq1_full_gt_grouped_bars(rq1_full_gt: pd.DataFrame) -> plt.Figure:
     """
@@ -156,143 +389,7 @@ def plot_rq1_part_gt_grouped_bars(
     fig.tight_layout()
     return fig
 
-def plot_rq1_all_settings_grouped_bars(
-    rq1_full_gt: pd.DataFrame,
-    rq1_part_gt: pd.DataFrame,
-    *,
-    setting_order: Optional[list[str]] = None,
-) -> plt.Figure:
-    """
-    Plot one horizontal RQ1 overview figure with one panel per setting.
 
-    Panel 1:
-        - full_gt setting(s), using metrics:
-          F1, Recall, EOS Recall
-
-    Remaining panels:
-        - part_gt settings, using metrics:
-          Recall, EOS Recall
-
-    Args:
-        rq1_full_gt: Formatted RQ1 full_gt table.
-        rq1_part_gt: Formatted RQ1 part_gt table.
-        setting_order: Explicit global setting order from the analysis bundle.
-
-    Returns:
-        Matplotlib figure.
-    """
-    systems = ["Baseline", "Best Selected Set"]
-    colors = {
-        "Baseline": "#7A8594",
-        "Best Selected Set": "#0655CB",
-    }
-
-    full_df = rq1_full_gt.copy()
-    part_df = rq1_part_gt.copy()
-
-    full_df = full_df[full_df["System"].isin(systems)].copy()
-    part_df = part_df[part_df["System"].isin(systems)].copy()
-
-    full_settings = full_df["Setting"].dropna().astype(str).unique().tolist()
-
-    if setting_order is None:
-        part_settings = part_df["Setting"].dropna().astype(str).unique().tolist()
-    else:
-        part_settings = [
-            s for s in setting_order
-            if s in part_df["Setting"].dropna().astype(str).unique().tolist()
-        ]
-
-    all_panels: list[tuple[str, pd.DataFrame, list[str]]] = []
-
-    for setting in full_settings:
-        all_panels.append(
-            (
-                setting,
-                full_df[full_df["Setting"] == setting].copy(),
-                [m for m in ["F1", "Recall", "EOS Recall"] if m in full_df.columns],
-            )
-        )
-
-    for setting in part_settings:
-        all_panels.append(
-            (
-                setting,
-                part_df[part_df["Setting"] == setting].copy(),
-                [m for m in ["Recall", "EOS Recall"] if m in part_df.columns],
-            )
-        )
-
-    n_panels = len(all_panels)
-    if n_panels == 0:
-        raise ValueError("No RQ1 settings available for plotting.")
-
-    fig, axes = plt.subplots(
-        nrows=1,
-        ncols=n_panels,
-        figsize=(4.2 * n_panels, 4.8),
-        sharey=True,
-    )
-
-    if n_panels == 1:
-        axes = [axes]
-
-    width = 0.28
-    legend_handles = None
-    legend_labels = None
-    font_size = 16
-
-    for ax, (setting, df_setting, metrics) in zip(axes, all_panels):
-        x = np.arange(len(metrics)) * 1.0
-
-        local_handles = []
-        local_labels = []
-
-        for idx, system in enumerate(systems):
-            row = df_setting[df_setting["System"] == system]
-            if row.empty:
-                values = [np.nan] * len(metrics)
-            else:
-                row = row.iloc[0]
-                values = [row[m] for m in metrics]
-
-            bars = ax.bar(
-                x + (idx - 0.5) * width,
-                values,
-                width=width,
-                color=colors[system],
-                label=system,
-            )
-
-            if legend_handles is None:
-                local_handles.append(bars[0])
-                local_labels.append(system)
-
-        if legend_handles is None:
-            legend_handles = local_handles
-            legend_labels = local_labels
-
-        ax.margins(x=0.20)
-        ax.set_title(setting, fontsize=font_size)
-        ax.set_xticks(x)
-        ax.set_xticklabels(metrics, fontsize=font_size)
-        ax.set_ylim(0, 0.35)
-        ax.grid(axis="y", linestyle="--", alpha=0.35)
-
-    axes[0].set_ylabel("Score", fontsize=font_size)
-
-    fig.legend(
-        legend_handles,
-        legend_labels,
-        loc="upper center",
-        ncol=2,
-        frameon=False,
-        bbox_to_anchor=(0.5, 1.02),
-        fontsize=font_size,
-    )
-
-    fig.tight_layout(rect=[0, 0, 1, 0.92])
-    return fig
 
 # --- RQ2a Ranking ---
 
@@ -355,6 +452,8 @@ def plot_rq2a_rank_vs_score(
     ax.set_title(f"Single Configuration Ranking – {mode} – {get_metric_label(score_col)}", fontsize=font_size)
     ax.set_xlabel("Rank", fontsize=font_size)
     # set x-ticks at integer ranks, with a step of 5 for readability
+    ax.tick_params(axis="y", labelsize=(font_size*0.9))
+    ax.tick_params(axis="x", labelsize=(font_size*0.9))
     ax.set_xticks(range(0, top_k, 5))
     ax.set_ylabel(get_metric_label(score_col), fontsize=font_size)
     ax.legend(fontsize=font_size)
@@ -436,7 +535,8 @@ def plot_rq2a_f1_vs_k(
     ax.set_title(f"Greedy Forward Selection", fontsize=font_size)
     ax.set_xlabel("k - number of combined configurations", fontsize=font_size)
     ax.set_xticks(range(0, int(df["k"].max()) + 1, 5))
-
+    ax.tick_params(axis="y", labelsize=(font_size*0.9))
+    ax.tick_params(axis="x", labelsize=(font_size*0.9))
     ax.set_ylim(top=y_max * 1.08)
     ax.legend(fontsize=font_size)
     ax.grid(axis="y", linestyle="--", alpha=0.3)
@@ -572,6 +672,7 @@ def plot_rq2b_boxplot_with_points(
         ax.set_xlabel("Audio Derivative Group")
         ax.set_ylabel(score_label)
         ax.tick_params(axis="x", rotation=20)
+        ax.tick_params(axis="y", labelsize=16)
 
     for ax in axes[n_panels:]:
         ax.set_visible(False)
@@ -663,12 +764,276 @@ def plot_rq2b_vad_mask_boxplot_with_points(
         ax.set_xlabel("VAD Mask")
         ax.set_ylabel(score_label)
         ax.tick_params(axis="x", rotation=20)
-
+        ax.tick_params(axis="y", labelsize=16)
     for ax in axes[n_panels:]:
         ax.set_visible(False)
 
     fig.tight_layout()
     return fig
+
+# --- RQ2b new with heatmaps ---
+def _rq2b_vad_mask_order() -> list[str]:
+    """
+    Return the fixed VAD mask order used in RQ2b plots.
+
+    Returns:
+        Ordered list of VAD mask names.
+    """
+    return [
+        "no",
+        "original",
+        "std",
+        "std_vocals",
+        "std_vocals_norm",
+        "std_background",
+        "std_background_norm",
+    ]
+
+
+def _rq2b_asr_audio_order() -> list[str]:
+    """
+    Return the fixed ASR audio input order used in RQ2b plots.
+
+    Returns:
+        Ordered list of ASR audio derivative names.
+    """
+    return [
+        "original",
+        "std",
+        "std_vocals",
+        "std_vocals_norm",
+        "std_background",
+        "std_background_norm",
+    ]
+
+
+def plot_rq2b_boxplots_by_setting(
+    ranking_single: pd.DataFrame,
+    *,
+    mode: str,
+    score_col: str,
+    top_k: Optional[int] = None,
+    setting_order: Optional[list[str]] = None,
+    jitter: float = 0.05,
+    figsize: tuple[float, float] = (7.5, 4.8),
+) -> dict[str, plt.Figure]:
+    """
+    Plot one RQ2b derivative-group boxplot per setting.
+
+    Each figure shows the score distribution across audio derivative groups:
+    - original_like
+    - vocals_like
+    - background_like
+    - all_derivatives
+
+    Args:
+        ranking_single: Concatenated RQ2a single-ranking DataFrame.
+        mode: "full_gt" or "part_gt".
+        score_col: Metric column to plot.
+        top_k: Optional limit per setting after sorting by rank.
+        setting_order: Explicit setting order from the analysis bundle.
+        jitter: Horizontal jitter for points.
+        figsize: Figure size per setting.
+
+    Returns:
+        Dict mapping setting -> matplotlib figure.
+    """
+    df = ranking_single.copy()
+    df = df[df["mode"] == mode].copy()
+
+    if score_col not in df.columns:
+        raise KeyError(f"Missing score column '{score_col}'.")
+
+    if "asr_audio_in" not in df.columns:
+        raise KeyError("Missing column 'asr_audio_in'.")
+
+    if "rank_within_run" not in df.columns:
+        raise KeyError("Missing column 'rank_within_run'.")
+
+    if setting_order is None:
+        raise ValueError("plot_rq2b_boxplots_by_setting() requires setting_order.")
+
+    df["audio_derivative_group"] = df["asr_audio_in"].apply(_derive_audio_derivative_group)
+
+    if top_k is not None:
+        df = (
+            df.sort_values(["setting", "rank_within_run"], ascending=[True, True])
+            .groupby("setting", as_index=False, group_keys=False)
+            .head(top_k)
+            .copy()
+        )
+
+    settings = [s for s in setting_order if s in df["setting"].unique()]
+    if not settings:
+        raise ValueError("No settings available for the selected mode.")
+
+    group_order = _derivative_order()
+    score_label = get_metric_label(score_col)
+    rng = np.random.default_rng(42)
+
+    figures: dict[str, plt.Figure] = {}
+
+    for setting in settings:
+        df_setting = df[df["setting"] == setting].copy()
+
+        grouped_values = []
+        for group in group_order:
+            if group == "all_derivatives":
+                values = df_setting[score_col].dropna().tolist()
+            else:
+                values = df_setting.loc[
+                    df_setting["audio_derivative_group"] == group,
+                    score_col,
+                ].dropna().tolist()
+            grouped_values.append(values)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.boxplot(grouped_values, labels=group_order)
+
+        for idx, values in enumerate(grouped_values, start=1):
+            if not values:
+                continue
+            x = rng.normal(loc=idx, scale=jitter, size=len(values))
+            ax.scatter(x, values, alpha=0.85)
+
+        ax.set_title(f"RQ2b Configuration – Audio Derivatives – {setting}")
+        ax.set_xlabel("Audio Derivative Group")
+        ax.set_ylabel(score_label)
+        ax.tick_params(axis="x", rotation=20)
+        ax.tick_params(axis="y", labelsize=16)
+        ax.grid(axis="y", linestyle="--", alpha=0.3)
+
+        fig.tight_layout()
+        figures[setting] = fig
+
+    return figures
+
+
+def plot_rq2b_heatmaps_by_setting(
+    ranking_single: pd.DataFrame,
+    *,
+    mode: str,
+    score_col: str,
+    setting_order: Optional[list[str]] = None,
+    agg: str = "mean",
+    annot: bool = True,
+    annot_fontsize: int = 10,
+    figsize: tuple[float, float] = (8.5, 5.8),
+    cmap: str = "viridis",
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+) -> dict[str, plt.Figure]:
+    """
+    Plot one VAD-mask × ASR-audio heatmap per setting.
+
+    The heatmap shows one cell per configuration:
+    rows = VAD mask
+    cols = ASR audio input
+    values = selected metric
+
+    Args:
+        ranking_single: Concatenated RQ2a single-ranking DataFrame.
+        mode: "full_gt" or "part_gt".
+        score_col: Metric column to plot.
+        setting_order: Explicit setting order from the analysis bundle.
+        agg: Aggregation used in pivot table. Supported: "mean", "median", "max".
+        annot: Whether to print numeric values inside cells.
+        annot_fontsize: Font size for cell annotations.
+        figsize: Figure size per setting.
+        cmap: Matplotlib colormap name.
+        vmin: Optional fixed lower color limit.
+        vmax: Optional fixed upper color limit.
+
+    Returns:
+        Dict mapping setting -> matplotlib figure.
+    """
+    df = ranking_single.copy()
+    df = df[df["mode"] == mode].copy()
+
+    required_cols = {"setting", "vad_mask", "asr_audio_in", score_col}
+    missing = required_cols - set(df.columns)
+    if missing:
+        raise KeyError(f"Missing required columns for heatmap plot: {sorted(missing)}")
+
+    if setting_order is None:
+        raise ValueError("plot_rq2b_heatmaps_by_setting() requires setting_order.")
+
+    if agg not in {"mean", "median", "max"}:
+        raise ValueError("agg must be one of {'mean', 'median', 'max'}.")
+
+    settings = [s for s in setting_order if s in df["setting"].unique()]
+    if not settings:
+        raise ValueError("No settings available for the selected mode.")
+
+    vad_order = _rq2b_vad_mask_order()
+    asr_order = _rq2b_asr_audio_order()
+    score_label = get_metric_label(score_col)
+
+    figures: dict[str, plt.Figure] = {}
+
+    for setting in settings:
+        df_setting = df[df["setting"] == setting].copy()
+
+        pivot = pd.pivot_table(
+            df_setting,
+            index="vad_mask",
+            columns="asr_audio_in",
+            values=score_col,
+            aggfunc=agg,
+        )
+
+        pivot = pivot.reindex(index=vad_order, columns=asr_order)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        im = ax.imshow(
+            pivot.values,
+            aspect="auto",
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+        )
+
+        ax.set_title(f"RQ2b Configuration – VAD Mask × ASR Audio Input – {setting}")
+        ax.set_xlabel("ASR Audio Input")
+        ax.set_ylabel("VAD Mask")
+
+        ax.set_xticks(np.arange(len(asr_order)))
+        ax.set_xticklabels(asr_order, rotation=25, ha="right")
+        ax.set_yticks(np.arange(len(vad_order)))
+        ax.set_yticklabels(vad_order)
+
+        # Draw cell borders
+        ax.set_xticks(np.arange(-0.5, len(asr_order), 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, len(vad_order), 1), minor=True)
+        ax.grid(which="minor", color="white", linestyle="-", linewidth=1)
+        ax.tick_params(which="minor", bottom=False, left=False)
+
+        if annot:
+            for row_idx in range(len(vad_order)):
+                for col_idx in range(len(asr_order)):
+                    value = pivot.iloc[row_idx, col_idx]
+                    if pd.isna(value):
+                        text = "–"
+                    else:
+                        text = f"{value:.3f}"
+
+                    ax.text(
+                        col_idx,
+                        row_idx,
+                        text,
+                        ha="center",
+                        va="center",
+                        color="white" if pd.notna(value) else "black",
+                        fontsize=annot_fontsize,
+                    )
+
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label(score_label)
+
+        fig.tight_layout()
+        figures[setting] = fig
+
+    return figures
 
 # --- RQ3 ---
 
