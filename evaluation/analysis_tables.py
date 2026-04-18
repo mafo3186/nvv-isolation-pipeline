@@ -123,6 +123,26 @@ def _append_setting_columns(
 
     return result
 
+def format_df_3decimals(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Format all float columns to 3 decimal places (including trailing zeros)
+    for display/export purposes.
+
+    Args:
+        df: Input DataFrame
+
+    Returns:
+        Formatted DataFrame with string-formatted float columns
+    """
+    df_fmt = df.copy()
+
+    float_cols = df_fmt.select_dtypes(include=["float"]).columns
+
+    for col in float_cols:
+        df_fmt[col] = df_fmt[col].map(lambda x: f"{x:.3f}")
+
+    return df_fmt
+
 
 def get_top_runs(
     df_rq1: pd.DataFrame,
@@ -2002,3 +2022,126 @@ def build_rq3_global_tables(df_rq3_global: pd.DataFrame) -> dict[str, pd.DataFra
         results["part_gt"] = df_part.reset_index(drop=True)
 
     return results
+
+def build_rq3_global_thesis_table(df_rq3_global: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build one thesis-ready RQ3 global table:
+    - NVS only from full_gt
+    - VOCAL datasets only from part_gt
+    - F1 only for full_gt
+    - all float values formatted to 3 decimals (incl. trailing zeros)
+
+    Args:
+        df_rq3_global: Concatenated RQ3 global artifact across settings.
+
+    Returns:
+        One formatted DataFrame for thesis export/display.
+    """
+    _require_columns(
+        df_rq3_global,
+        [
+            "mode",
+            "dataset_name",
+            "n_gt_events_total",
+            "tp_total",
+            "fn_total",
+            "insertions_total",
+            "recall",
+            "dice_eos_recall",
+            "mean_dice_eos_tp",
+            "insertion_rate",
+        ],
+        label="RQ3 global thesis table",
+    )
+
+    df = df_rq3_global.copy()
+
+    df_full = df[
+        (df["mode"] == "full_gt") &
+        (df["dataset_name"] == "NVS-38K_EN")
+    ].copy()
+
+    if df_full.empty:
+        raise ValueError("Expected NVS-38K_EN full_gt row in RQ3 global artifact.")
+
+    if "f1" not in df_full.columns:
+        raise KeyError("Expected column 'f1' for NVS full_gt row.")
+
+    df_part = df[
+        (df["mode"] == "part_gt") &
+        (df["dataset_name"].astype(str).str.startswith("VOCAL"))
+    ].copy()
+
+    df_full.insert(
+        0,
+        "Setting",
+        df_full["dataset_name"].astype(str) + " | " + df_full["mode"].astype(str),
+    )
+    df_part.insert(
+        0,
+        "Setting",
+        df_part["dataset_name"].astype(str) + " | " + df_part["mode"].astype(str),
+    )
+
+    df_full = df_full.rename(
+        columns={
+            "n_gt_events_total": "N_GT",
+            "tp_total": "TP",
+            "fn_total": "FN",
+            "insertions_total": "Insertions",
+            "f1": "F1",
+            "recall": "Recall",
+            "dice_eos_recall": "EOS Recall",
+            "mean_dice_eos_tp": "Mean EOS TP",
+            "insertion_rate": "Insertion Rate",
+        }
+    )
+
+    df_part = df_part.rename(
+        columns={
+            "n_gt_events_total": "N_GT",
+            "tp_total": "TP",
+            "fn_total": "FN",
+            "insertions_total": "Insertions",
+            "recall": "Recall",
+            "dice_eos_recall": "EOS Recall",
+            "mean_dice_eos_tp": "Mean EOS TP",
+            "insertion_rate": "Insertion Rate",
+        }
+    )
+
+    df_part["F1"] = pd.NA
+
+    ordered_cols = [
+        "Setting",
+        "N_GT",
+        "TP",
+        "FN",
+        "Insertions",
+        "F1",
+        "Recall",
+        "EOS Recall",
+        "Mean EOS TP",
+        "Insertion Rate",
+   ]
+
+    df_full = df_full[ordered_cols].copy()
+    df_part = df_part[ordered_cols].copy()
+
+    df_out = pd.concat([df_full, df_part], ignore_index=True)
+
+    # format only float-like metric columns to 3 decimals with trailing zeros
+    metric_cols = [
+        "F1",
+        "Recall",
+        "EOS Recall",
+        "Mean EOS TP",
+        "Insertion Rate",
+    ]
+
+    for col in metric_cols:
+        df_out[col] = df_out[col].apply(
+            lambda x: "" if pd.isna(x) else f"{float(x):.3f}"
+        )
+
+    return df_out

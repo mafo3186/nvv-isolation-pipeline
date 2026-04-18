@@ -544,9 +544,9 @@ def plot_rq2a_f1_vs_k(
     fig.tight_layout()
     return fig
 
-# --- RQ2b ---
+# --- RQ2b Audio Derivative Groups---
 
-def _derivative_order() -> list[str]:
+def _derivative_group_order() -> list[str]:
     """
     Return the fixed derivative group order.
 
@@ -579,106 +579,6 @@ def _derive_audio_derivative_group(asr_audio_in: str) -> str:
         return "background_like"
     return "unknown"
 
-def plot_rq2b_boxplot_with_points(
-    ranking_single: pd.DataFrame,
-    *,
-    mode: str,
-    score_col: str,
-    top_k: Optional[int] = None,
-    setting_order: Optional[list[str]] = None,
-    jitter: float = 0.05,
-) -> plt.Figure:
-    """
-    Plot RQ2b boxplots with points per setting using single-config results.
-
-    Each subplot shows the score distribution across audio derivative groups.
-    The "all_derivatives" group contains all configs of the setting.
-
-    Args:
-        ranking_single: Concatenated RQ2a single-ranking DataFrame.
-        mode: "full_gt" or "part_gt".
-        score_col: Metric column to plot.
-        top_k: Optional limit per setting after sorting by rank.
-        setting_order: Explicit setting order from the analysis bundle.
-        jitter: Horizontal jitter for points.
-
-    Returns:
-        Matplotlib figure.
-    """
-    df = ranking_single.copy()
-    df = df[df["mode"] == mode].copy()
-
-    if score_col not in df.columns:
-        raise KeyError(f"Missing score column '{score_col}'.")
-
-    if "asr_audio_in" not in df.columns:
-        raise KeyError("Missing column 'asr_audio_in'.")
-
-    if "rank_within_run" not in df.columns:
-        raise KeyError("Missing column 'rank_within_run'.")
-
-    if setting_order is None:
-        raise ValueError("plot_rq2b_boxplot_with_points() requires setting_order.")
-
-    df["audio_derivative_group"] = df["asr_audio_in"].apply(_derive_audio_derivative_group)
-
-    if top_k is not None:
-        df = (
-            df.sort_values(["setting", "rank_within_run"], ascending=[True, True])
-            .groupby("setting", as_index=False, group_keys=False)
-            .head(top_k)
-            .copy()
-        )
-
-    settings = [s for s in setting_order if s in df["setting"].unique()]
-    n_panels = len(settings)
-
-    if n_panels == 0:
-        raise ValueError("No settings available for the selected mode.")
-
-    ncols = 2
-    nrows = math.ceil(n_panels / ncols)
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(12, 4.5 * nrows))
-    axes = np.array(axes).reshape(-1)
-
-    group_order = _derivative_order()
-    score_label = get_metric_label(score_col)
-
-    rng = np.random.default_rng(42)
-
-    for ax, setting in zip(axes, settings):
-        df_setting = df[df["setting"] == setting].copy()
-
-        grouped_values = []
-        for group in group_order:
-            if group == "all_derivatives":
-                values = df_setting[score_col].dropna().tolist()
-            else:
-                values = df_setting.loc[
-                    df_setting["audio_derivative_group"] == group,
-                    score_col,
-                ].dropna().tolist()
-            grouped_values.append(values)
-
-        ax.boxplot(grouped_values, labels=group_order)
-
-        for idx, values in enumerate(grouped_values, start=1):
-            if not values:
-                continue
-            x = rng.normal(loc=idx, scale=jitter, size=len(values))
-            ax.scatter(x, values, alpha=0.85)
-
-        ax.set_title(f"RQ2b Configuration – Audio Derivatives – {setting}")
-        ax.set_xlabel("Audio Derivative Group")
-        ax.set_ylabel(score_label)
-        ax.tick_params(axis="x", rotation=20)
-        ax.tick_params(axis="y", labelsize=16)
-
-    for ax in axes[n_panels:]:
-        ax.set_visible(False)
-
-    fig.tight_layout()
-    return fig
 
 def plot_rq2b_vad_mask_boxplot_with_points(
     ranking_single: pd.DataFrame,
@@ -771,7 +671,7 @@ def plot_rq2b_vad_mask_boxplot_with_points(
     fig.tight_layout()
     return fig
 
-# --- RQ2b new with heatmaps ---
+# --- RQ2b new boxplots and heatmaps ---
 def _rq2b_vad_mask_order() -> list[str]:
     """
     Return the fixed VAD mask order used in RQ2b plots.
@@ -867,11 +767,12 @@ def plot_rq2b_boxplots_by_setting(
     if not settings:
         raise ValueError("No settings available for the selected mode.")
 
-    group_order = _derivative_order()
+    group_order = _derivative_group_order()
     score_label = get_metric_label(score_col)
     rng = np.random.default_rng(42)
 
     figures: dict[str, plt.Figure] = {}
+    font_size = 16
 
     for setting in settings:
         df_setting = df[df["setting"] == setting].copy()
@@ -896,11 +797,11 @@ def plot_rq2b_boxplots_by_setting(
             x = rng.normal(loc=idx, scale=jitter, size=len(values))
             ax.scatter(x, values, alpha=0.85)
 
-        ax.set_title(f"RQ2b Configuration – Audio Derivatives – {setting}")
-        ax.set_xlabel("Audio Derivative Group")
-        ax.set_ylabel(score_label)
-        ax.tick_params(axis="x", rotation=20)
-        ax.tick_params(axis="y", labelsize=16)
+        ax.set_title(f"{setting}  ", fontsize=font_size, pad=15)
+        ax.set_xlabel("ASR Audio Input (Derivative Group)", fontsize=font_size)
+        ax.set_ylabel(score_label, fontsize=font_size)
+        ax.tick_params(axis="x", rotation=20, labelsize=(font_size*0.9))
+        ax.tick_params(axis="y", labelsize=(font_size*0.9))
         ax.grid(axis="y", linestyle="--", alpha=0.3)
 
         fig.tight_layout()
@@ -908,7 +809,112 @@ def plot_rq2b_boxplots_by_setting(
 
     return figures
 
+# verification of distribution within group - not used in thesis
+def plot_rq2b_boxplots_by_asr_audio_input_by_setting(
+    ranking_single: pd.DataFrame,
+    *,
+    mode: str,
+    score_col: str,
+    top_k: Optional[int] = None,
+    setting_order: Optional[list[str]] = None,
+    jitter: float = 0.05,
+    figsize: tuple[float, float] = (7.5, 4.8),
+) -> dict[str, plt.Figure]:
+    """
+    Plot one RQ2b boxplot per setting using individual ASR audio inputs.
 
+    Each figure shows the score distribution across the original ASR input
+    derivatives:
+    - original
+    - std
+    - std_vocals
+    - std_vocals_norm
+    - std_background
+    - std_background_norm
+
+    Args:
+        ranking_single: Concatenated RQ2a single-ranking DataFrame.
+        mode: "full_gt" or "part_gt".
+        score_col: Metric column to plot.
+        top_k: Optional limit per setting after sorting by rank.
+        setting_order: Explicit setting order from the analysis bundle.
+        jitter: Horizontal jitter for points.
+        figsize: Figure size per setting.
+
+    Returns:
+        Dict mapping setting -> matplotlib figure.
+    """
+    df = ranking_single.copy()
+    df = df[df["mode"] == mode].copy()
+
+    if score_col not in df.columns:
+        raise KeyError(f"Missing score column '{score_col}'.")
+
+    if "asr_audio_in" not in df.columns:
+        raise KeyError("Missing column 'asr_audio_in'.")
+
+    if "rank_within_run" not in df.columns:
+        raise KeyError("Missing column 'rank_within_run'.")
+
+    if setting_order is None:
+        raise ValueError("plot_rq2b_boxplots_by_asr_audio_input_setting() requires setting_order.")
+
+    if top_k is not None:
+        df = (
+            df.sort_values(["setting", "rank_within_run"], ascending=[True, True])
+            .groupby("setting", as_index=False, group_keys=False)
+            .head(top_k)
+            .copy()
+        )
+
+    settings = [s for s in setting_order if s in df["setting"].unique()]
+    if not settings:
+        raise ValueError("No settings available for the selected mode.")
+
+    asr_order = _rq2b_asr_audio_order()
+    score_label = get_metric_label(score_col)
+    rng = np.random.default_rng(42)
+
+    figures: dict[str, plt.Figure] = {}
+    font_size = 16
+
+    for setting in settings:
+        df_setting = df[df["setting"] == setting].copy()
+
+        grouped_values = []
+        for asr_audio in asr_order:
+            values = df_setting.loc[
+                df_setting["asr_audio_in"].astype(str) == asr_audio,
+                score_col,
+            ].dropna().tolist()
+            grouped_values.append(values)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.boxplot(grouped_values, labels=asr_order)
+
+        for idx, values in enumerate(grouped_values, start=1):
+            if not values:
+                continue
+            x = rng.normal(loc=idx, scale=jitter, size=len(values))
+            ax.scatter(x, values, alpha=0.85)
+
+        ax.set_title(
+            f"Configuration – ASR Audio Inputs – {setting}",
+            fontsize=font_size,
+            pad=15,
+        )
+        ax.set_xlabel("ASR Audio Input", fontsize=font_size)
+        ax.set_ylabel(score_label, fontsize=font_size)
+        ax.tick_params(axis="x", rotation=20, labelsize=(font_size * 0.9))
+        ax.tick_params(axis="y", labelsize=(font_size * 0.9))
+        ax.grid(axis="y", linestyle="--", alpha=0.3)
+
+        fig.tight_layout()
+        figures[setting] = fig
+
+    return figures
+
+# visualization of interaction between VAD mask and ASR audio input 
 def plot_rq2b_heatmaps_by_setting(
     ranking_single: pd.DataFrame,
     *,
@@ -917,7 +923,7 @@ def plot_rq2b_heatmaps_by_setting(
     setting_order: Optional[list[str]] = None,
     agg: str = "mean",
     annot: bool = True,
-    annot_fontsize: int = 10,
+    annot_fontsize: int = 16,
     figsize: tuple[float, float] = (8.5, 5.8),
     cmap: str = "viridis",
     vmin: Optional[float] = None,
@@ -968,7 +974,7 @@ def plot_rq2b_heatmaps_by_setting(
     vad_order = _rq2b_vad_mask_order()
     asr_order = _rq2b_asr_audio_order()
     score_label = get_metric_label(score_col)
-
+    
     figures: dict[str, plt.Figure] = {}
 
     for setting in settings:
@@ -993,14 +999,14 @@ def plot_rq2b_heatmaps_by_setting(
             vmax=vmax,
         )
 
-        ax.set_title(f"RQ2b Configuration – VAD Mask × ASR Audio Input – {setting}")
-        ax.set_xlabel("ASR Audio Input")
-        ax.set_ylabel("VAD Mask")
+        ax.set_title(f"{setting} ", fontsize=annot_fontsize, pad=15)
+        ax.set_xlabel("ASR Audio Input", fontsize=annot_fontsize)
+        ax.set_ylabel("VAD Mask", fontsize=annot_fontsize)
 
         ax.set_xticks(np.arange(len(asr_order)))
-        ax.set_xticklabels(asr_order, rotation=25, ha="right")
+        ax.set_xticklabels(asr_order, rotation=25, ha="right", fontsize=(annot_fontsize * 0.9))
         ax.set_yticks(np.arange(len(vad_order)))
-        ax.set_yticklabels(vad_order)
+        ax.set_yticklabels(vad_order, fontsize=(annot_fontsize * 0.9))
 
         # Draw cell borders
         ax.set_xticks(np.arange(-0.5, len(asr_order), 1), minor=True)
@@ -1028,7 +1034,7 @@ def plot_rq2b_heatmaps_by_setting(
                     )
 
         cbar = fig.colorbar(im, ax=ax)
-        cbar.set_label(score_label)
+        cbar.set_label(score_label, fontsize=annot_fontsize)
 
         fig.tight_layout()
         figures[setting] = fig
