@@ -1081,25 +1081,36 @@ def plot_rq3_label_coverage(
     labels = df["Label"].tolist()
     tp = df["tp"].astype(float).values
     fn = df["fn"].astype(float).values
+    font_size = 16
 
     if ax is None:
-        fig, ax = plt.subplots(figsize=(10, 5))
+        fig, ax = plt.subplots(figsize=(10, 7))
     else:
         fig = ax.figure
 
     x = np.arange(len(labels))
+    tp_color = "tab:blue"
+    fn_color = "#EB9B76"
 
-    ax.bar(x, tp, label="TP")
-    ax.bar(x, fn, bottom=tp, label="FN")
+    ax.bar(x, tp, label="TP", color=tp_color)
+    ax.bar(x, fn, bottom=tp, label="FN", color=fn_color)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=45, ha="right")
-    ax.set_ylabel("Number of events")
-    ax.set_title(f"RQ3 Label Coverage (Counts) – {setting}")
-    ax.legend()
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=font_size * 0.9)
+    ax.set_ylabel("Number of events", fontsize=font_size)
+    ax.set_yticklabels(ax.get_yticks().astype(int), fontsize=font_size * 0.9)
+    #ax.set_title(f"RQ3 Label Coverage (Counts) – {setting}")
+    ax.set_title(f"{setting}", fontsize=font_size, pad=25)
+
+    ax.legend(
+        fontsize=font_size * 0.9,
+        loc="upper right",
+        bbox_to_anchor=(1.0, 1.20),  # x=right edge, y=above plot
+        frameon=False,
+    )
     ax.grid(axis="y", linestyle="--", alpha=0.4)
 
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0, 1, 0.88])
     return fig
 
 
@@ -1151,26 +1162,36 @@ def plot_rq3_label_quality(
     mean_eos_tp_vals = df["Mean EOS TP"].astype(float).values
 
     if ax is None:
-        fig, ax = plt.subplots(figsize=(10, 5))
+        fig, ax = plt.subplots(figsize=(10, 7))
     else:
         fig = ax.figure
 
     x = np.arange(len(labels))
     width = 0.25
+    font_size = 16
+    recall_color = "tab:blue"
+    eos_recall_color = "tab:green"
+    mean_eos_tp_color = "tab:purple"
 
-    ax.bar(x - width, recall_vals, width=width, label="Recall", color="tab:blue")
-    ax.bar(x, eos_recall_vals, width=width, label="EOS Recall", color="tab:green")
-    ax.bar(x + width, mean_eos_tp_vals, width=width, label="Mean EOS TP", color="tab:purple")
+    ax.bar(x - width, recall_vals, width=width, label="Recall", color=recall_color)
+    ax.bar(x, eos_recall_vals, width=width, label="EOS Recall", color=eos_recall_color)
+    ax.bar(x + width, mean_eos_tp_vals, width=width, label="Mean EOS TP", color=mean_eos_tp_color)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=45, ha="right")
-    ax.set_ylabel("Score")
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=font_size * 0.9)
+    ax.set_ylabel("Score", fontsize=font_size)
     ax.set_ylim(0.0, 1.05)
-    ax.set_title(f"RQ3 Label Quality – {setting}")
-    ax.legend()
+    ax.set_yticklabels(ax.get_yticks().astype(float).round(2), fontsize=font_size * 0.9)
+    ax.set_title(f"{setting}", fontsize=font_size, pad=45)
+    ax.legend(
+        fontsize=font_size * 0.9,
+        loc="upper right",
+        bbox_to_anchor=(1.0, 1.35),  # x=right edge, y=above plot
+        frameon=False,
+    )
     ax.grid(axis="y", linestyle="--", alpha=0.4)
 
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0, 1, 0.88])
     return fig
 
 
