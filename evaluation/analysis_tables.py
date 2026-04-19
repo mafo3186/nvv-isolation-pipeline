@@ -2145,3 +2145,195 @@ def build_rq3_global_thesis_table(df_rq3_global: pd.DataFrame) -> pd.DataFrame:
         )
 
     return df_out
+
+def classify_candidate_source(cand_label: object) -> str:
+    """
+    Classify candidate label origin.
+
+    Args:
+        cand_label: Candidate label string.
+
+    Returns:
+        One of: "NLP", "VAD", "Other"
+    """
+    if pd.isna(cand_label):
+        return "Other"
+
+    label = str(cand_label).lower()
+
+    if "(nlp)" in label:
+        return "NLP"
+    if "vad_gap" in label:
+        return "VAD"
+    return "Other"
+
+
+def build_candidate_source_distribution_table(
+    rq3_part_gt_event_tables: dict[str, pd.DataFrame],
+    *,
+    include_settings: list[str] | None = None,
+    statuses: list[str] | None = None,
+    short_setting_name: bool = True,
+) -> pd.DataFrame:
+    """
+    Build a thesis-ready candidate source distribution table in compact form.
+
+    Output columns:
+        - Dataset
+        - Hit NLP (%)
+        - Hit VAD (%)
+        - Insertion NLP (%)
+        - Insertion VAD (%)
+
+    Args:
+        rq3_part_gt_event_tables: Dict from build_rq3_part_gt_event_tables().
+        include_settings: Optional subset of settings to include.
+        statuses: Status values to include. Defaults to ["Hit", "Insertion"].
+        short_setting_name: If True, keep only dataset name before " | ".
+
+    Returns:
+        DataFrame with percentage shares of NLP / VAD candidates.
+    """
+    if statuses is None:
+        statuses = ["Hit", "Insertion"]
+
+    rows = []
+
+    for setting_name, df in rq3_part_gt_event_tables.items():
+        if include_settings is not None and setting_name not in include_settings:
+            continue
+
+        df_local = df.copy()
+        dataset_label = setting_name.split(" | ")[0] if short_setting_name else setting_name
+
+        row = {"Dataset": dataset_label}
+
+        for status in statuses:
+            df_status = df_local[df_local["Status"] == status].copy()
+
+            if df_status.empty:
+                row[f"{status} NLP (%)"] = 0.0
+                row[f"{status} VAD (%)"] = 0.0
+                continue
+
+            df_status["Candidate Source"] = df_status["Cand Label"].apply(classify_candidate_source)
+
+            counts = df_status["Candidate Source"].value_counts(dropna=False)
+            total = len(df_status)
+
+            row[f"{status} NLP (%)"] = counts.get("NLP", 0) / total * 100
+            row[f"{status} VAD (%)"] = counts.get("VAD", 0) / total * 100
+
+        rows.append(row)
+
+    df_out = pd.DataFrame(rows)
+
+    if not df_out.empty:
+        df_out = df_out.sort_values(by="Dataset", ascending=True).reset_index(drop=True)
+
+    return df_out
+
+
+def classify_nlp_subtype(cand_label: object) -> str:
+    """
+    Extract NLP subtype from candidate label.
+
+    Args:
+        cand_label: Candidate label string.
+
+    Returns:
+        NLP subtype or fallback group.
+    """
+    if pd.isna(cand_label):
+        return "Other"
+
+    label = str(cand_label).lower()
+
+    if "filler (nlp)" in label:
+        return "filler"
+    if "non_word (nlp)" in label:
+        return "non-word"
+    if "oov (nlp)" in label:
+        return "oov"
+    if "unknown (nlp)" in label:
+        return "unknown"
+    if "vad_gap" in label:
+        return "VAD gap"
+    return "Other"
+
+
+def build_candidate_label_subtype_table(
+    rq3_part_gt_event_tables: dict[str, pd.DataFrame],
+    *,
+    include_settings: list[str] | None = None,
+    statuses: list[str] | None = None,
+    short_setting_name: bool = True,
+) -> dict[str, pd.DataFrame]:
+    """
+    Build detailed subtype distribution tables per dataset.
+
+    Output:
+        Dict mapping Dataset -> DataFrame with columns:
+            - Dataset
+            - Status
+            - Category
+            - Count
+            - %
+
+    Args:
+        rq3_part_gt_event_tables: Dict from build_rq3_part_gt_event_tables().
+        include_settings: Optional subset of settings to include.
+        statuses: Status values to include. Defaults to ["Hit", "Insertion"].
+        short_setting_name: If True, keep only dataset name before " | ".
+
+    Returns:
+        Dict of per-dataset DataFrames.
+    """
+    if statuses is None:
+        statuses = ["Hit", "Insertion"]
+
+    tables_by_dataset = {}
+
+    for setting_name, df in rq3_part_gt_event_tables.items():
+        if include_settings is not None and setting_name not in include_settings:
+            continue
+
+        dataset_label = setting_name.split(" | ")[0] if short_setting_name else setting_name
+
+        rows = []
+
+        for status in statuses:
+            df_status = df[df["Status"] == status].copy()
+            if df_status.empty:
+                continue
+
+            df_status["NVV Candidate Type"] = df_status["Cand Label"].apply(classify_nlp_subtype)
+
+            counts = df_status["NVV Candidate Type"].value_counts(dropna=False)
+            total = len(df_status)
+
+            for category, count in counts.items():
+                rows.append(
+                    {
+                        "Dataset": dataset_label,
+                        "Status": status,
+                        "NVV Candidate Type": category,
+                        "Count": count,
+                        "%": count / total * 100,
+                    }
+                )
+
+        df_out = pd.DataFrame(rows)
+
+        if not df_out.empty:
+            status_order = {"Hit": 0, "Insertion": 1}
+            df_out["_status_order"] = df_out["Status"].map(status_order).fillna(99)
+
+            df_out = df_out.sort_values(
+                by=["_status_order", "Count"],
+                ascending=[True, False],
+            ).drop(columns="_status_order").reset_index(drop=True)
+
+        tables_by_dataset[dataset_label] = df_out
+
+    return tables_by_dataset
