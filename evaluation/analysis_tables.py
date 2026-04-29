@@ -123,6 +123,26 @@ def _append_setting_columns(
 
     return result
 
+def format_df_3decimals(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Format all float columns to 3 decimal places (including trailing zeros)
+    for display/export purposes.
+
+    Args:
+        df: Input DataFrame
+
+    Returns:
+        Formatted DataFrame with string-formatted float columns
+    """
+    df_fmt = df.copy()
+
+    float_cols = df_fmt.select_dtypes(include=["float"]).columns
+
+    for col in float_cols:
+        df_fmt[col] = df_fmt[col].map(lambda x: f"{x:.3f}")
+
+    return df_fmt
+
 
 def get_top_runs(
     df_rq1: pd.DataFrame,
@@ -2002,3 +2022,318 @@ def build_rq3_global_tables(df_rq3_global: pd.DataFrame) -> dict[str, pd.DataFra
         results["part_gt"] = df_part.reset_index(drop=True)
 
     return results
+
+def build_rq3_global_thesis_table(df_rq3_global: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build one thesis-ready RQ3 global table:
+    - NVS only from full_gt
+    - VOCAL datasets only from part_gt
+    - F1 only for full_gt
+    - all float values formatted to 3 decimals (incl. trailing zeros)
+
+    Args:
+        df_rq3_global: Concatenated RQ3 global artifact across settings.
+
+    Returns:
+        One formatted DataFrame for thesis export/display.
+    """
+    _require_columns(
+        df_rq3_global,
+        [
+            "mode",
+            "dataset_name",
+            "n_gt_events_total",
+            "tp_total",
+            "fn_total",
+            "insertions_total",
+            "recall",
+            "dice_eos_recall",
+            "mean_dice_eos_tp",
+            "insertion_rate",
+        ],
+        label="RQ3 global thesis table",
+    )
+
+    df = df_rq3_global.copy()
+
+    df_full = df[
+        (df["mode"] == "full_gt") &
+        (df["dataset_name"] == "NVS-38K_EN")
+    ].copy()
+
+    if df_full.empty:
+        raise ValueError("Expected NVS-38K_EN full_gt row in RQ3 global artifact.")
+
+    if "f1" not in df_full.columns:
+        raise KeyError("Expected column 'f1' for NVS full_gt row.")
+
+    df_part = df[
+        (df["mode"] == "part_gt") &
+        (df["dataset_name"].astype(str).str.startswith("VOCAL"))
+    ].copy()
+
+    df_full.insert(
+        0,
+        "Setting",
+        df_full["dataset_name"].astype(str) + " | " + df_full["mode"].astype(str),
+    )
+    df_part.insert(
+        0,
+        "Setting",
+        df_part["dataset_name"].astype(str) + " | " + df_part["mode"].astype(str),
+    )
+
+    df_full = df_full.rename(
+        columns={
+            "n_gt_events_total": "N_GT",
+            "tp_total": "TP",
+            "fn_total": "FN",
+            "insertions_total": "Insertions",
+            "f1": "F1",
+            "recall": "Recall",
+            "dice_eos_recall": "EOS Recall",
+            "mean_dice_eos_tp": "Mean EOS TP",
+            "insertion_rate": "Insertion Rate",
+        }
+    )
+
+    df_part = df_part.rename(
+        columns={
+            "n_gt_events_total": "N_GT",
+            "tp_total": "TP",
+            "fn_total": "FN",
+            "insertions_total": "Insertions",
+            "recall": "Recall",
+            "dice_eos_recall": "EOS Recall",
+            "mean_dice_eos_tp": "Mean EOS TP",
+            "insertion_rate": "Insertion Rate",
+        }
+    )
+
+    df_part["F1"] = pd.NA
+
+    ordered_cols = [
+        "Setting",
+        "N_GT",
+        "TP",
+        "FN",
+        "Insertions",
+        "F1",
+        "Recall",
+        "EOS Recall",
+        "Mean EOS TP",
+        "Insertion Rate",
+   ]
+
+    df_full = df_full[ordered_cols].copy()
+    df_part = df_part[ordered_cols].copy()
+
+    df_out = pd.concat([df_full, df_part], ignore_index=True)
+
+    # format only float-like metric columns to 3 decimals with trailing zeros
+    metric_cols = [
+        "F1",
+        "Recall",
+        "EOS Recall",
+        "Mean EOS TP",
+        "Insertion Rate",
+    ]
+
+    for col in metric_cols:
+        df_out[col] = df_out[col].apply(
+            lambda x: "" if pd.isna(x) else f"{float(x):.3f}"
+        )
+
+    return df_out
+
+def classify_candidate_source(cand_label: object) -> str:
+    """
+    Classify candidate label origin.
+
+    Args:
+        cand_label: Candidate label string.
+
+    Returns:
+        One of: "NLP", "VAD", "Other"
+    """
+    if pd.isna(cand_label):
+        return "Other"
+
+    label = str(cand_label).lower()
+
+    if "(nlp)" in label:
+        return "NLP"
+    if "vad_gap" in label:
+        return "VAD"
+    return "Other"
+
+
+def build_candidate_source_distribution_table(
+    rq3_part_gt_event_tables: dict[str, pd.DataFrame],
+    *,
+    include_settings: list[str] | None = None,
+    statuses: list[str] | None = None,
+    short_setting_name: bool = True,
+) -> pd.DataFrame:
+    """
+    Build a thesis-ready candidate source distribution table in compact form.
+
+    Output columns:
+        - Dataset
+        - Hit NLP (%)
+        - Hit VAD (%)
+        - Insertion NLP (%)
+        - Insertion VAD (%)
+
+    Args:
+        rq3_part_gt_event_tables: Dict from build_rq3_part_gt_event_tables().
+        include_settings: Optional subset of settings to include.
+        statuses: Status values to include. Defaults to ["Hit", "Insertion"].
+        short_setting_name: If True, keep only dataset name before " | ".
+
+    Returns:
+        DataFrame with percentage shares of NLP / VAD candidates.
+    """
+    if statuses is None:
+        statuses = ["Hit", "Insertion"]
+
+    rows = []
+
+    for setting_name, df in rq3_part_gt_event_tables.items():
+        if include_settings is not None and setting_name not in include_settings:
+            continue
+
+        df_local = df.copy()
+        dataset_label = setting_name.split(" | ")[0] if short_setting_name else setting_name
+
+        row = {"Dataset": dataset_label}
+
+        for status in statuses:
+            df_status = df_local[df_local["Status"] == status].copy()
+
+            if df_status.empty:
+                row[f"{status} NLP (%)"] = 0.0
+                row[f"{status} VAD (%)"] = 0.0
+                continue
+
+            df_status["Candidate Source"] = df_status["Cand Label"].apply(classify_candidate_source)
+
+            counts = df_status["Candidate Source"].value_counts(dropna=False)
+            total = len(df_status)
+
+            row[f"{status} NLP (%)"] = counts.get("NLP", 0) / total * 100
+            row[f"{status} VAD (%)"] = counts.get("VAD", 0) / total * 100
+
+        rows.append(row)
+
+    df_out = pd.DataFrame(rows)
+
+    if not df_out.empty:
+        df_out = df_out.sort_values(by="Dataset", ascending=True).reset_index(drop=True)
+
+    return df_out
+
+
+def classify_nlp_subtype(cand_label: object) -> str:
+    """
+    Extract NLP subtype from candidate label.
+
+    Args:
+        cand_label: Candidate label string.
+
+    Returns:
+        NLP subtype or fallback group.
+    """
+    if pd.isna(cand_label):
+        return "Other"
+
+    label = str(cand_label).lower()
+
+    if "filler (nlp)" in label:
+        return "filler"
+    if "non_word (nlp)" in label:
+        return "non-word"
+    if "oov (nlp)" in label:
+        return "oov"
+    if "unknown (nlp)" in label:
+        return "unknown"
+    if "vad_gap" in label:
+        return "VAD gap"
+    return "Other"
+
+
+def build_candidate_label_subtype_table(
+    rq3_part_gt_event_tables: dict[str, pd.DataFrame],
+    *,
+    include_settings: list[str] | None = None,
+    statuses: list[str] | None = None,
+    short_setting_name: bool = True,
+) -> dict[str, pd.DataFrame]:
+    """
+    Build detailed subtype distribution tables per dataset.
+
+    Output:
+        Dict mapping Dataset -> DataFrame with columns:
+            - Dataset
+            - Status
+            - Category
+            - Count
+            - %
+
+    Args:
+        rq3_part_gt_event_tables: Dict from build_rq3_part_gt_event_tables().
+        include_settings: Optional subset of settings to include.
+        statuses: Status values to include. Defaults to ["Hit", "Insertion"].
+        short_setting_name: If True, keep only dataset name before " | ".
+
+    Returns:
+        Dict of per-dataset DataFrames.
+    """
+    if statuses is None:
+        statuses = ["Hit", "Insertion"]
+
+    tables_by_dataset = {}
+
+    for setting_name, df in rq3_part_gt_event_tables.items():
+        if include_settings is not None and setting_name not in include_settings:
+            continue
+
+        dataset_label = setting_name.split(" | ")[0] if short_setting_name else setting_name
+
+        rows = []
+
+        for status in statuses:
+            df_status = df[df["Status"] == status].copy()
+            if df_status.empty:
+                continue
+
+            df_status["NVV Candidate Type"] = df_status["Cand Label"].apply(classify_nlp_subtype)
+
+            counts = df_status["NVV Candidate Type"].value_counts(dropna=False)
+            total = len(df_status)
+
+            for category, count in counts.items():
+                rows.append(
+                    {
+                        "Dataset": dataset_label,
+                        "Status": status,
+                        "NVV Candidate Type": category,
+                        "Count": count,
+                        "%": count / total * 100,
+                    }
+                )
+
+        df_out = pd.DataFrame(rows)
+
+        if not df_out.empty:
+            status_order = {"Hit": 0, "Insertion": 1}
+            df_out["_status_order"] = df_out["Status"].map(status_order).fillna(99)
+
+            df_out = df_out.sort_values(
+                by=["_status_order", "Count"],
+                ascending=[True, False],
+            ).drop(columns="_status_order").reset_index(drop=True)
+
+        tables_by_dataset[dataset_label] = df_out
+
+    return tables_by_dataset

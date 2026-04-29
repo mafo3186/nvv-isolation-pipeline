@@ -57,8 +57,8 @@ workspace:
 
 # --- Evaluation / Ground Truth / Preprocessing configuration: special case VOCALS concrete paths) ---
 evaluation:
-  gt_mode: "full_gt" 
-  part_gt_additional_selected_set: [] # wait for full-gt results to select best set for part-gt
+  gt_mode: "part_gt" 
+  part_gt_additional_selected_set: ["std_vocals_vad_std_vocals_norm_asr_nlp_nvv", "std_background_vad_original_asr_nlp_nvv"] # wait for full-gt results to select best set for part-gt
 
   gt_units:
     - name: "NVS-38K_EN"
