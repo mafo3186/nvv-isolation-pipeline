@@ -24,7 +24,7 @@ Unlike traditional label-based approaches, this system is **data-driven** and ai
 It is conceptually inspired by the *Emilia-Pipe* ([He et al., 2025](https://arxiv.org/abs/2501.15907),[He et al., 2024](https://arxiv.org/abs/2407.05361)) NonVerbalSpeech-38K Pipeline ([Ye et al., 2025](https://doi.org/10.48550/arXiv.2508.05385)) and AVC-FillerNet ([Zhu et al., 2022 ](https://arxiv.org/abs/2203.15135)) but redesigned for **unlabeled, data-driven, exclusion-based NVV isolation** and examines a preview-sample of the VOCAL dataset (Militaru, E., Huber, F., Sauter, D., in preparation)
 
 ## Evaluation & Research Findings
-A quantitative evaluation examines the capability of the NVV Isolation Pipeline to isolate non-verbal vocalizations from in-the-wild audio recordings.
+A quantitative evaluation examines the capability of the NVV Isolation Pipeline to isolate non-verbal vocalizations from in-the-wild audio recordings. The evaluation was conducted on [NonVerbalSpeech-38K](https://huggingface.co/datasets/nonverbalspeech/nonverbalspeech38k) (EN subset) and a restricted-access VOCAL preview sample.
 
 - **Results**: The pipeline achieves **moderate recall (~0.23–0.27)** across evaluation datasets, while correctly isolated events show **consistently high temporal alignment**, indicating precise boundary localization.
 
@@ -35,31 +35,35 @@ A quantitative evaluation examines the capability of the NVV Isolation Pipeline 
 - **Coverage**: Some NVV types are more reliably isolated than others, but no consistent pattern can be established due to annotation constraints.
 
 ## Pipeline Overview
+The NVV Isolation Pipeline consists of a modular, multi-stage process for isolating non-verbal vocalizations from in-the-wild audio.
 
-Each step is independent and resume-safe (`<audio_id>_metadata.json` tracks progress and artifacts per audio_id).  
-All steps are file-driven and artifact-based. No hidden state is used.
+![NVV Isolation Pipeline Overview](docs/images/nvv_isolation_pipeline_overview.png)
 
-| Step | Function | Input | Output | baseline-params | Notes |
-|------|----------|-------|--------|----------------|-------|
-| **1. Standardize** | Peak-normalize input audio for source separation (44.1 kHz stereo PCM16) | `<Input-Folder>`:<br> Raw Input Audio  |  `<workspace>/<audio_id>/per_audio/audio/`: <br>Standardized audio `<audio_id>_std.wav` | `SEPARATION_SAMPLING_RATE = 44100 Hz`<br>`Peak normalization` | Ensures UVR-compatible input (stereo, 44.1 kHz, peak-normalized). No content modification beyond amplitude scaling. |
-| **2. Separate (UVR-MDX-Net Inst 3)** | Split into vocals and background stems | `<workspace>/per_audio/<audio_id>/audio/`: <br>Standardized Audio <br> `*_std.wav` | `<workspace>/per_audio/<audio_id>/audio/`: <br> Separated Audios <br> `*_vocals.wav`<br>`*_background.wav` | `Model = UVR-MDX-NET-Inst_3.onnx`<br>`CUDA auto-detection` | ConvTDFNet ONNX model. Deterministic separation into two stems. No speaker separation. |
-| **3. Normalize** | RMS-normalize separated tracks for analysis (24 kHz mono) | `<workspace>/per_audio/<audio_id>/audio/`: <br> Separated Audios <br>`*std_vocals.wav`<br>`*std_background.wav` |  `<workspace>/per_audio/<audio_id>/audio/`: <br> Normalized separated audios<br>`*_vocals_norm.wav`<br>`*_background_norm.wav` | `ANALYSIS_SAMPLING_RATE = 24000 Hz`<br>`TARGET_DBFS = -20 dBFS ± 3 dB` | Converts to mono 24 kHz for VAD + ASR stability. RMS normalization only (no compression, no limiting). |
-| **4. VAD (Hybrid Silero + Energy)** | Detect speech-like regions with high recall |  `<workspace>/per_audio/audio/`: <br>Any analysis audio derivative (`*_norm.wav`, `*_std.wav`, or original`) | `<workspace>/per_audio/<audio_id>/annotations/vad/`: <br> VAD mask <br> `<audio_id>_<source>_vad.json` | `VAD_THRESHOLD = 0.3`<br>`VAD_MIN_SPEECH_MS = 75`<br>`VAD_MIN_SILENCE_MS = 75`<br>`VAD_PAD_MS = 50`<br>`VAD_SMOOTHING_WINDOW = 400`<br>`VAD_ENERGY_REL_THRESHOLD = 0.4`<br>`VAD_EXPAND_PRE = 0.01`<br>`VAD_EXPAND_POST = 0.01`<br>`VAD_EXPAND_STEP = 0.01` | Hybrid Silero-VAD (16 kHz) + energy-based boundary refinement. Designed for high recall. No speaker diarization. |
-| **5. ASR (CrisperWhisper + DTW Patch)** | Word-level transcription with robust timestamps | `<workspace>/per_audio/<audio_id>/audio/`:<br>Any analysis audio derivative as Audio-Input, combinated with <br> `<workspace>/per_audio/<audio_id>/annotations/vad/` Any VAD mask for Audio-Input. <br> Or: Original audio without VAD mask | `<workspace>/per_audio/<audio_id>/annotations/asr/`:<br>ASR segments<br>`<audio_id>_<vad_mask>_vad_<audio_derivative>_asr.json` | `Model = CrisperWhisper`<br>`return_timestamps = "word"`<br>`DTW alignment enabled`<br>`median_filter_width (HF default)`<br>`pause_split_threshold = 0.12 s` | Word-level timestamps computed via DTW-based alignment (CrisperWhisper). Minimal post-processing: repair of some `None` end timestamps and overlap clamping. No aggressive timestamp interpolation. |
-| **6. NLP Speechmask (Lexical Filter)** | Lexical classification of ASR chunks | `<workspace>/per_audio/<audio_id>/annotations/asr/`: ASR segments<br>`*_asr.json` | `<workspace>/per_audio/<audio_id>/annotations/nlp/`: NLP category segments (Speechmask) and log-file<br>`<stem>_nlp.json`<br>`<stem>_nlp_log.json` | `spaCy model = en_core_web_sm`<br>`exclude_categories default = ["word"]` | Classifies each ASR chunk into `word / filler / non_word / oov / unknown`. Does not modify timestamps. Broken JSON → raise. Valid empty → preserved. |
-| **7. NVV Candidate Extraction (Strict Gate)** | Derive NVV candidates from NLP (optionally VAD-gated) | `<workspace>/per_audio/<audio_id>/annotations/nlp/`: NLP category segments (Speechmask)`*_nlp.json` combinated with <br> `<workspace>/per_audio/<audio_id>/annotations/vad/` VAD mask `*_vad.json`  | `<workspace>/per_audio/<audio_id>/annotations/nvv/`: <br>NVV Candidate Segments<br>`<stem>_nvv.json` | `exclude_categories = ["word"]`<br>`STEP7_MIN_NVV_LENGTH_S`<br>`STEP7_MAX_NVV_LENGTH_S`<br>`STEP7_VAD_GATE_PADDING`<br>`STEP7_DEDUP_OVERLAP_RATIO`<br>`STEP7_DEDUP_TIME_TOL_S` | Deterministic extraction. Drops chunks with invalid timestamps (`None`). Optional strict VAD gate + VAD-gap detection. Duration filtering and deduplication applied. |
+- **Standardization** – peak normalization and format alignment for source separation  
+- **Source Separation** – decomposition into vocals and background (UVR-MDX)  
+- **Normalization** – RMS-based normalization for analysis (mono, 24 kHz)  
+- **VAD** – high-recall segmentation using hybrid Silero + energy refinement  
+- **ASR** – verbatim, time-aligned transcription (supporting NVV-sensitive analysis)  
+- **NLP Analysis** – lexical classification into speech vs. non-lexical categories  
+- **NVV Isolation** – exclusion-based extraction of NVV candidate segments
 
-**Export**
+The pipeline produces **time-aligned NVV candidate segments with precise timestamps**, along with intermediate artifacts for analysis and reproducibility.
+
+See the [Detailed Pipeline Specification](#detailed-pipeline-specification) for a full description of inputs, outputs, and parameters.
+
+
+### Export
 
 | Step | Function |  Notes |
 |------|-----------|-------|
 | **Exports** | Export of Audacity compatible label-files | Can be used to subtitle Youtube-Videos or inspect results |
 
 
-**Potential Extensions:**
-- Novelty Onset Detection: Optional additional onset detection for NVV refinement, can be used to improve boundary precision
-- Further preprocessing to meet varying quality of *in-the-wild* recordings
-- Parameter or Model changes (VAD or Source separation) to improve recall.
+### Potential Extensions
+
+- Improve recall through further VAD and source separation experiments.
+- Explore additional preprocessing for heterogeneous in-the-wild recordings.
+- Investigate optional onset refinement for NVV boundary improvement.
 
 ## Environment and Installation
 The pipeline is executed in a dedicated Python environment (Conda recommended), defined via an `environment.yml` file to ensure reproducibility across systems.
@@ -101,10 +105,9 @@ pip install --upgrade --force-reinstall --no-cache-dir onnxruntime-gpu==1.18.1
 ```
 
 
-
 #### Hugging Face Models (automatic download)
-The Automatic Speech Recognition (ASR) model `nyrahealth/CrisperWhisper`, loaded via `transformes.from_pretrained(...)` is used in Step 5.  
-The Setup requires internet connecton and Hugging Face access on first run. (The model is cached locally after the first download.):
+The Automatic Speech Recognition (ASR) model `nyrahealth/CrisperWhisper`, loaded via `transformers.from_pretrained(...)` is used in Step 5.  
+The Setup requires internet connection and Hugging Face access on first run. (The model is cached locally after the first download.):
 ```bash
 huggingface-cli login
 ```
@@ -115,7 +118,7 @@ The NLP step uses a configurable spaCy model (default: `en_core_web_lg`). If the
 python -m spacy download en_core_web_lg
 ```
 
-#### External Dependecies
+#### External Dependencies
 FFmpeg may be required for some audio backends (e.g., via `librosa`) and should be available on the system (not only in the environment)
 
 #### Current environment
@@ -139,7 +142,7 @@ You can run each step individually via its CLI entry point.
 
 ```bash
 # Step 1 – Standardization
-python -m pipeline.step_1_standardize --input ./data/raw/test_audio --workspace ./data/processed/test_audio --device auto --force 1_standardize --device auto --force
+python -m pipeline.step_1_standardize --input ./data/raw/test_audio --workspace ./data/processed/test_audio --device auto --force 
 # Step 2 – Source Separation (UVR)
 python -m pipeline.step_2_separate --workspace ./data/processed/test_audio --model ./models/UVR-MDX-NET-Inst_3.onnx --device auto --force
 # Step 3 – Normalization
@@ -202,7 +205,19 @@ python run_exports.py --config ./config/config.yaml --subfolder subfolder_name
 - ASR supports flexible audio/VAD-mask combinations 
 - Absolute paths are stored in `per_audio/<audio_id>/<audio_id>_metadata.json` for reproducible export and batch linking.
 
+## Detailed Pipeline Specification
+Each step is independent and resume-safe (`<audio_id>_metadata.json` tracks progress and artifacts per audio_id).  
+All steps are file-driven and artifact-based. No hidden state is used.
 
+| Step | Function | Input | Output | baseline-params | Notes |
+|------|----------|-------|--------|----------------|-------|
+| **1. Standardize** | Peak-normalize input audio for source separation (44.1 kHz stereo PCM16) | `<Input-Folder>`:<br> Raw Input Audio  |  `<workspace>/per_audio/<audio_id>/audio/`: <br>Standardized audio `<audio_id>_std.wav` | `SEPARATION_SAMPLING_RATE = 44100 Hz`<br>`Peak normalization` | Ensures UVR-compatible input (stereo, 44.1 kHz, peak-normalized). No content modification beyond amplitude scaling. |
+| **2. Separate (UVR-MDX-Net Inst 3)** | Split into vocals and background stems | `<workspace>/per_audio/<audio_id>/audio/`: <br>Standardized Audio <br> `*_std.wav` | `<workspace>/per_audio/<audio_id>/audio/`: <br> Separated Audios <br> `*_vocals.wav`<br>`*_background.wav` | `Model = UVR-MDX-NET-Inst_3.onnx`<br>`CUDA auto-detection` | ConvTDFNet ONNX model. Deterministic separation into two stems. No speaker separation. |
+| **3. Normalize** | RMS-normalize separated tracks for analysis (24 kHz mono) | `<workspace>/per_audio/<audio_id>/audio/`: <br> Separated Audios <br>`*std_vocals.wav`<br>`*std_background.wav` |  `<workspace>/per_audio/<audio_id>/audio/`: <br> Normalized separated audios<br>`*_vocals_norm.wav`<br>`*_background_norm.wav` | `ANALYSIS_SAMPLING_RATE = 24000 Hz`<br>`TARGET_DBFS = -20 dBFS ± 3 dB` | Converts to mono 24 kHz for VAD + ASR stability. RMS normalization only (no compression, no limiting). |
+| **4. VAD (Hybrid Silero + Energy)** | Detect speech-like regions with high recall |  `<workspace>/per_audio/audio/`: <br>Any analysis audio derivative (`*_norm.wav`, `*_std.wav`, or original`) | `<workspace>/per_audio/<audio_id>/annotations/vad/`: <br> VAD mask <br> `<audio_id>_<source>_vad.json` | `VAD_THRESHOLD = 0.3`<br>`VAD_MIN_SPEECH_MS = 75`<br>`VAD_MIN_SILENCE_MS = 75`<br>`VAD_PAD_MS = 50`<br>`VAD_SMOOTHING_WINDOW = 400`<br>`VAD_ENERGY_REL_THRESHOLD = 0.4`<br>`VAD_EXPAND_PRE = 0.01`<br>`VAD_EXPAND_POST = 0.01`<br>`VAD_EXPAND_STEP = 0.01` | Hybrid Silero-VAD (16 kHz) + energy-based boundary refinement. Designed for high recall. No speaker diarization. |
+| **5. ASR (CrisperWhisper + DTW Patch)** | Word-level transcription with robust timestamps | `<workspace>/per_audio/<audio_id>/audio/`:<br>Any analysis audio derivative as Audio-Input, combined with <br> `<workspace>/per_audio/<audio_id>/annotations/vad/` Any VAD mask for Audio-Input. <br> Or: Original audio without VAD mask | `<workspace>/per_audio/<audio_id>/annotations/asr/`:<br>ASR segments<br>`<audio_id>_<vad_mask>_vad_<audio_derivative>_asr.json` | `Model = CrisperWhisper`<br>`return_timestamps = "word"`<br>`DTW alignment enabled`<br>`median_filter_width (HF default)`<br>`pause_split_threshold = 0.12 s` | Word-level timestamps computed via DTW-based alignment (CrisperWhisper). Minimal post-processing: repair of some `None` end timestamps and overlap clamping. No aggressive timestamp interpolation. |
+| **6. NLP Speechmask (Lexical Filter)** | Lexical classification of ASR chunks | `<workspace>/per_audio/<audio_id>/annotations/asr/`: ASR segments<br>`*_asr.json` | `<workspace>/per_audio/<audio_id>/annotations/nlp/`: NLP category segments (Speechmask) and log-file<br>`<stem>_nlp.json`<br>`<stem>_nlp_log.json` | `spaCy model = en_core_web_sm`<br>`exclude_categories default = ["word"]` | Classifies each ASR chunk into `word / filler / non_word / oov / unknown`. Does not modify timestamps. Broken JSON → raise. Valid empty → preserved. |
+| **7. NVV Candidate Extraction (Strict Gate)** | Derive NVV candidates from NLP (optionally VAD-gated) | `<workspace>/per_audio/<audio_id>/annotations/nlp/`: NLP category segments (Speechmask)`*_nlp.json` combinated with <br> `<workspace>/per_audio/<audio_id>/annotations/vad/` VAD mask `*_vad.json`  | `<workspace>/per_audio/<audio_id>/annotations/nvv/`: <br>NVV Candidate Segments<br>`<stem>_nvv.json` | `exclude_categories = ["word"]`<br>`STEP7_MIN_NVV_LENGTH_S`<br>`STEP7_MAX_NVV_LENGTH_S`<br>`STEP7_VAD_GATE_PADDING`<br>`STEP7_DEDUP_OVERLAP_RATIO`<br>`STEP7_DEDUP_TIME_TOL_S` | Deterministic extraction. Drops chunks with invalid timestamps (`None`). Optional strict VAD gate + VAD-gap detection. Duration filtering and deduplication applied. |
 
 ## Configuration
 The configuration of the workspace is defined in `<your_config>.yml`
@@ -266,9 +281,9 @@ Expected xls-header:
 ```bash
 id_column: str = "video_id",              # audio_id
 ann_id_column: str = "ann_id",            # id of nvv-event annotation
-start_column: str = "start_s",            # timstamp in seconds
+start_column: str = "start_s",            # timestamp in seconds
 end_column: str = "end_s",                # timestamp in seconds
-label_column: str = "vocalization_type",   #free label,
+label_column: str = "vocalization_type",  # free label,
 ```
 
 ```bash
