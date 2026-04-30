@@ -11,9 +11,9 @@ This thesis contributes to the project
 
 # Non-Verbal Vocalization (NVV) Isolation Pipeline
 
-## Goal & Approach
+## Objective & Approach
 This modular pipeline is part of the **Master’s Thesis** on  
-**data-driven isolation of non-verbal vocalizations (NVVs)** from *in-the-wild* data.
+**data-driven isolation** of **non-verbal vocalizations (NVVs)** from **in-the-wild** data.
 
 Unlike traditional label-based approaches, this system is **data-driven** and aims to:
 
@@ -21,7 +21,37 @@ Unlike traditional label-based approaches, this system is **data-driven** and ai
 - **Produce precise timestamps** for NVV events.  
 - **Keep all intermediate artifacts traceable and reproducible.**  
 
-It is conceptually inspired by the *Emilia-Pipe* ([He et al., 2025](https://arxiv.org/abs/2501.15907),[He et al., 2024](https://arxiv.org/abs/2407.05361)) and NonVerbalSpeech-38K Pipeline ([Ye et al., 2025](https://doi.org/10.48550/arXiv.2508.05385)), but redesigned for **unlabeled, data-driven, exclusion-based NVV isolation** and examines a preview-sample of the VOCAL dataset (Militaru, E., Huber, F., Sauter, D., in preparation)
+It is conceptually inspired by the *Emilia-Pipe* ([He et al., 2025](https://arxiv.org/abs/2501.15907),[He et al., 2024](https://arxiv.org/abs/2407.05361)) NonVerbalSpeech-38K Pipeline ([Ye et al., 2025](https://doi.org/10.48550/arXiv.2508.05385)) and AVC-FillerNet ([Zhu et al., 2022 ](https://arxiv.org/abs/2203.15135)) but redesigned for **unlabeled, data-driven, exclusion-based NVV isolation** and examines a preview-sample of the VOCAL dataset (Militaru, E., Huber, F., Sauter, D., in preparation)
+
+## Evaluation & Research Findings
+This work investigates the following research question:
+
+**[How] can non-verbal vocalizations be automatically isolated in a data-driven manner from unlabeled, in-the-wild audio recordings without predefined categories?**   
+
+This question is addressed through three sub-questions:
+
+- **RQ1 — Capability**  
+  To what extent can the proposed approach isolate NVV candidates?   
+
+- **RQ2 — Sensitivity to Configuration Changes**  
+  How sensitive is NVV candidate isolation to configuration changes in the proposed approach?   
+
+- **RQ3 — NVV Coverage**  
+  Which types of non-verbal vocalizations can be reliably isolated, and which are difficult to isolate?   
+
+### Key Results
+
+- The NVV Isolation Pipeline demonstrates **capability to isolate NVV candidates**, achieving **moderate recall (~0.23–0.27)** across evaluation datasets 
+
+- Correctly isolated events show **consistently high temporal alignment**, indicating precise boundary localization   
+
+- Performance is **strongly influenced by configuration choices**, particularly VAD and input audio derivatives, 
+  - **Voice activity detection (VAD)** emerges as a central **bottleneck** for NVV isolation
+  - **Combining multiple configurations** yields consistent improvements over single configurations, indicating that different audio derivatives capture **partially complementary NVV candidates**
+  - The use of **verbatim, time-aligned and NVV-sensitive ASR (CrisperWhisper)** enables the preservation and temporal localization of non-lexical vocalizations, supporting the exclusion-based isolation strategy
+
+- Some NVV types are more reliably isolated than others, but no consistent pattern can be established due to annotation constraints
+
 
 ## Environment and Installation
 The pipeline is executed in a dedicated Python environment (Conda recommended), defined via an `environment.yml` file to ensure reproducibility across systems.
