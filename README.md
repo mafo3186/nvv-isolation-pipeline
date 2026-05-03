@@ -22,7 +22,7 @@ The NVV Isolation Pipeline is a **data-driven, multi-stage audio processing pipe
 - **In-the-Wild Audio Support**: The pipeline is designed for heterogeneous naturalistic recordings, including audio derived from YouTube videos.
 
 ## Related Pipelines
-The NVV Isolation Pipeline is conceptually inspired by the *Emilia-Pipe* ([He et al., 2025](https://arxiv.org/abs/2501.15907), [He et al., 2024](https://arxiv.org/abs/2407.05361)), the NonVerbalSpeech-38K Pipeline ([Ye et al., 2025](https://doi.org/10.48550/arXiv.2508.05385)), and AVC-FillerNet ([Zhu et al., 2022 ](https://arxiv.org/abs/2203.15135)) but redesigned for **unlabeled, data-driven, exclusion-based NVV isolation** and examines a preview-sample of the VOCAL dataset (Militaru, E., Huber, F., Sauter, D., in preparation)
+The NVV Isolation Pipeline is conceptually inspired by the Emilia-Pipe ([He et al., 2025](https://arxiv.org/abs/2501.15907), [He et al., 2024](https://arxiv.org/abs/2407.05361)), the NonVerbalSpeech-38K Pipeline ([Ye et al., 2025](https://doi.org/10.48550/arXiv.2508.05385)), and AVC-FillerNet ([Zhu et al., 2022 ](https://arxiv.org/abs/2203.15135)) but redesigned for **unlabeled, data-driven, exclusion-based NVV isolation** and examines a preview-sample of the VOCAL dataset (Militaru, E., Huber, F., Sauter, D., in preparation).
 
 ## Processing Steps
 
